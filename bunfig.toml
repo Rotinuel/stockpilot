@@ -1,0 +1,3 @@
+[test]
+# Unit tests run without a database. Integration tests need MONGODB_URI_TEST.
+preload = ["./tests/setup.js"]

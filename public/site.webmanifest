@@ -1,0 +1,9 @@
+{
+  "name": "StockPilot",
+  "short_name": "StockPilot",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#4f46e5",
+  "icons": [{ "src": "/logo.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

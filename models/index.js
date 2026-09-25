@@ -1,0 +1,26 @@
+// Importing this module registers every model (needed for populate()).
+export { default as User } from "./User.js";
+export { default as Tenant } from "./Tenant.js";
+export { default as SubscriptionPlan } from "./SubscriptionPlan.js";
+export { default as Subscription } from "./Subscription.js";
+export { default as Payment } from "./Payment.js";
+export { default as WebhookEvent } from "./WebhookEvent.js";
+export { default as Location } from "./Location.js";
+export { default as Category } from "./Category.js";
+export { default as Product } from "./Product.js";
+export { default as ProductStock } from "./ProductStock.js";
+export { default as InventoryMovement } from "./InventoryMovement.js";
+export { default as Customer } from "./Customer.js";
+export { default as Supplier } from "./Supplier.js";
+export { default as Sale } from "./Sale.js";
+export { default as SaleItem } from "./SaleItem.js";
+export { default as Purchase } from "./Purchase.js";
+export { default as PurchaseItem } from "./PurchaseItem.js";
+export { default as Expense } from "./Expense.js";
+export { default as BalancePayment } from "./BalancePayment.js";
+export { default as Notification } from "./Notification.js";
+export { default as AuditLog } from "./AuditLog.js";
+export { default as Invitation } from "./Invitation.js";
+export { default as Counter } from "./Counter.js";
+export { default as Asset } from "./Asset.js";
+export { default as PlatformSetting } from "./PlatformSetting.js";
