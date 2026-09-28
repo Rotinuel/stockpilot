@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Check, CreditCard, LoaderCircle, CircleCheck, CircleX, RotateCcw } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { useConfirm } from "@/components/ui/Confirm";
+import { useToast } from "@/components/ui/Toast";
 import { apiFetch, useAction } from "@/hooks/useApi";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/utils/cn";
@@ -15,10 +16,15 @@ const INTERVAL = { monthly: "month", quarterly: "quarter", biannually: "6 months
 export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, canManage, paystackConfigured, periodEnd }) {
   const confirm = useConfirm();
   const router = useRouter();
+  const toast = useToast();
   const { run } = useAction();
   const [busy, setBusy] = useState(null);
 
   const choose = async (plan) => {
+    if (!paystackConfigured) {
+      toast.error("Payments aren't set up yet", "Online payment (Paystack) hasn't been configured, so this plan can't be purchased yet. See the notice at the top of this page.");
+      return;
+    }
     let action = "subscribe";
     if (isPaidActive) action = plan.price > currentPrice ? "upgrade" : "downgrade";
     const copy = {
@@ -67,7 +73,7 @@ export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, ca
               ))}
             </ul>
             {canManage ? (
-              <Button className="mt-6 w-full" variant={current ? "outline" : label === "Downgrade" ? "outline" : "primary"} disabled={current || !paystackConfigured} loading={busy === plan._id} onClick={() => choose(plan)}>
+              <Button className="mt-6 w-full" variant={current ? "outline" : label === "Downgrade" ? "outline" : "primary"} disabled={current || (busy && busy !== plan._id)} loading={busy === plan._id} onClick={() => choose(plan)}>
                 {label}
               </Button>
             ) : null}

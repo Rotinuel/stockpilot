@@ -127,7 +127,8 @@ async function createDemoSupermarket(plans, passwordHash) {
       slug,
       ownerId: users.owner._id,
       email: "demo@stockpilot.ng",
-      phone: "08030000001",
+      phone: "+2348030000001",
+      whatsappNumber: "+2348030000001",
       address: "24 Bode Thomas Street, Surulere, Lagos",
       country: "NG",
       currency: "NGN",
@@ -499,7 +500,7 @@ async function createTrialShop(plans, passwordHash) {
   const { trialStartedAt, trialEndsAt } = trialWindow(started);
   const loc = { _id: oid(), tenantId, name: "Main Store", isDefault: true, isActive: true, address: "Shop 14, Ariaria Market, Aba" };
   await insert(M.Tenant, [
-    build(M.Tenant, { _id: tenantId, businessName: "Chuks Provision Store", slug, ownerId, email: "trial@stockpilot.ng", phone: "08039990000", country: "NG", currency: "NGN", businessType: "Provision store", address: loc.address, subscriptionPlan: plans.trial._id, subscriptionPlanCode: "trial", subscriptionStatus: "trialing", trialStartedAt, trialEndsAt, onboarding: { completed: true, step: 6 }, remindersSent: ["trial-5"], createdAt: started, updatedAt: now }),
+    build(M.Tenant, { _id: tenantId, businessName: "Chuks Provision Store", slug, ownerId, email: "trial@stockpilot.ng", phone: "+2348039990000", whatsappNumber: "+2348039990000", country: "NG", currency: "NGN", businessType: "Provision store", address: loc.address, subscriptionPlan: plans.trial._id, subscriptionPlanCode: "trial", subscriptionStatus: "trialing", trialStartedAt, trialEndsAt, onboarding: { completed: true, step: 6 }, remindersSent: ["trial-5"], createdAt: started, updatedAt: now }),
   ]);
   await insert(M.User, [build(M.User, { _id: ownerId, tenantId, name: "Chukwudi Eze", email: "trial@stockpilot.ng", password: passwordHash, role: "owner", emailVerified: false, isActive: true, defaultLocationId: loc._id, createdAt: started, updatedAt: now })]);
   await insert(M.Location, [build(M.Location, { ...loc, createdAt: started, updatedAt: started })]);

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { LoginForm } from "@/components/auth/AuthForms";
 import { getSession } from "@/lib/session";
 import { ROLE_LABELS } from "@/lib/constants";
+import GoogleButton, { AuthErrorNotice } from "@/components/auth/GoogleButton";
+import { isGoogleConfigured } from "@/lib/auth/google";
 
 export const metadata = { title: "Sign in", description: "Sign in to your StockPilot account." };
 
@@ -28,6 +30,8 @@ export default async function LoginPage({ searchParams }) {
           or sign in below with a different account.
         </div>
       ) : null}
+      <AuthErrorNotice code={typeof sp?.error === "string" ? sp.error : null} />
+      {isGoogleConfigured() ? <GoogleButton mode="login" next={next} /> : null}
       <LoginForm next={next} />
       <p className="mt-8 text-center text-sm text-slate-500">
         New to StockPilot?{" "}

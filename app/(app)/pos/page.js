@@ -46,6 +46,9 @@ export default async function POSPage() {
         locations={toPlain(locations)}
         defaultLocationId={ctx.locationId ? String(ctx.locationId) : ""}
         allowCredit={hasFeature(session.plan, "customerBalances")}
+        tenantId={String(tenant._id)}
+        userId={String(session.user._id)}
+        cashierName={session.user.name}
       />
     </>
   );

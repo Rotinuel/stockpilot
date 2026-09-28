@@ -8,6 +8,8 @@ const TenantSchema = new Schema(
     ownerId: { type: ObjectId, ref: "User", index: true },
     email: { type: String, trim: true, lowercase: true },
     phone: { type: String, trim: true },
+    // E.164 number that receives WhatsApp alerts (owner's number from registration).
+    whatsappNumber: { type: String, trim: true, default: "" },
     address: { type: String, trim: true, maxlength: 300 },
     country: { type: String, default: "NG" },
     currency: { type: String, default: DEFAULT_CURRENCY },
@@ -57,6 +59,7 @@ const TenantSchema = new Schema(
       showLogoOnReceipt: { type: Boolean, default: true },
       lowStockNotifications: { type: Boolean, default: true },
       emailNotifications: { type: Boolean, default: true },
+      whatsappNotifications: { type: Boolean, default: true },
       allowCashierReports: { type: Boolean, default: false },
     },
 

@@ -51,3 +51,39 @@ describe("Slug & regex safety", () => {
     expect(rx.test("aab")).toBe(false);
   });
 });
+
+import { safeNext } from "../../lib/auth/redirects.js";
+describe("Post-login redirects", () => {
+  test("only same-site paths suitable for the role are allowed", () => {
+    expect(safeNext("/products", "owner")).toBe("/products");
+    expect(safeNext("https://evil.example", "owner")).toBe("/dashboard");
+    expect(safeNext("//evil.example", "owner")).toBe("/dashboard");
+    expect(safeNext("/\\evil.example", "owner")).toBe("/dashboard");
+    expect(safeNext("/api/x", "owner")).toBe("/dashboard");
+    expect(safeNext("/super-admin", "owner")).toBe("/dashboard");
+    expect(safeNext("/dashboard", "super_admin")).toBe("/super-admin");
+    expect(safeNext(undefined, "cashier")).toBe("/dashboard");
+  });
+});
+
+import { normalizePhone, whatsappLink } from "../../lib/phone.js";
+describe("Phone numbers for WhatsApp", () => {
+  test("normalises Nigerian local and international formats to E.164", () => {
+    expect(normalizePhone("0803 123 4567")).toBe("+2348031234567");
+    expect(normalizePhone("08031234567", "NG")).toBe("+2348031234567");
+    expect(normalizePhone("2348031234567")).toBe("+2348031234567");
+    expect(normalizePhone("+234 803-123-4567")).toBe("+2348031234567");
+    expect(normalizePhone("8031234567")).toBe("+2348031234567");
+    expect(normalizePhone("00447700900123")).toBe("+447700900123");
+    expect(normalizePhone("024 123 4567", "GH")).toBe("+233241234567");
+  });
+  test("rejects numbers that can't be valid", () => {
+    expect(normalizePhone("123")).toBe(null);
+    expect(normalizePhone("0803123")).toBe(null);
+    expect(normalizePhone("")).toBe(null);
+  });
+  test("builds click-to-chat links", () => {
+    expect(whatsappLink("0803 123 4567", "Hi there")).toBe("https://wa.me/2348031234567?text=Hi%20there");
+    expect(whatsappLink("", "x")).toBe("https://wa.me/?text=x");
+  });
+});

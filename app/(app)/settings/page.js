@@ -1,6 +1,8 @@
 import { Building2, Receipt, Bell, UserRound, Shield } from "lucide-react";
 import { requireTenantSession, sessionCan } from "@/lib/session";
 import { toPlain } from "@/lib/serialize";
+import User from "@/models/User";
+import { isWhatsAppConfigured } from "@/lib/whatsapp";
 import { str } from "@/lib/query";
 import { PageHeader } from "@/components/ui/Misc";
 import LinkTabs from "@/components/ui/LinkTabs";
@@ -25,12 +27,15 @@ export default async function SettingsPage({ searchParams }) {
   ];
   const requested = str(sp, "tab");
   const tab = tabs.some((t) => t.key === requested) ? requested : tabs[0].key;
+  const auth = tab === "security" ? await User.findById(session.user._id).select("+password +googleId").lean() : null;
+  const authInfo = { hasPassword: Boolean(auth?.password), googleLinked: Boolean(auth?.googleId) };
   // Only pass the fields each form needs to the client.
   const t = session.tenant;
   const tenant = toPlain({
     businessName: t.businessName,
     email: t.email,
     phone: t.phone,
+    whatsappNumber: t.whatsappNumber || "",
     address: t.address,
     businessType: t.businessType,
     logo: t.logo,
@@ -48,9 +53,9 @@ export default async function SettingsPage({ searchParams }) {
       <div className="max-w-3xl">
         {tab === "business" ? <BusinessForm tenant={tenant} /> : null}
         {tab === "invoices" ? <InvoiceSettingsForm settings={tenant.settings || {}} /> : null}
-        {tab === "notifications" ? <NotificationSettingsForm settings={tenant.settings || {}} isOwner={session.user.role === "owner"} /> : null}
+        {tab === "notifications" ? <NotificationSettingsForm settings={tenant.settings || {}} isOwner={session.user.role === "owner"} whatsappNumber={tenant.whatsappNumber} whatsappConfigured={isWhatsAppConfigured()} /> : null}
         {tab === "account" ? <AccountForm user={user} /> : null}
-        {tab === "security" ? <SecurityForm /> : null}
+        {tab === "security" ? <SecurityForm hasPassword={authInfo.hasPassword} googleLinked={authInfo.googleLinked} /> : null}
       </div>
     </>
   );

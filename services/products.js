@@ -242,7 +242,8 @@ export async function lookupProducts(ctx, q, { limit = 12, locationId } = {}) {
   } else {
     items = await Product.find(base).sort({ updatedAt: -1 }).limit(limit).lean();
   }
-  const locId = locationId || ctx.locationId;
+  // Same location the POS and sales use by default (user's location, else the business default).
+  const locId = (await resolveLocation(ctx, locationId).catch(() => null))?._id || null;
   const stock = locId
     ? await ProductStock.find(scoped(ctx, { locationId: locId, productId: { $in: items.map((i) => i._id) } })).lean()
     : [];
@@ -384,4 +385,55 @@ export async function deleteCategory(ctx, id, request) {
   await Product.updateMany(scoped(ctx, { categoryId: cat._id }), { $set: { categoryId: null } });
   await logAudit(ctx, "category.delete", { entity: "Category", entityId: cat._id, metadata: { name: cat.name }, request });
   return { ok: true };
+}
+
+/**
+ * Compact snapshot used by the POS to keep working offline
+ * (products with stock at the location, customers, receipt details).
+ */
+export async function posCatalog(ctx, locationId) {
+  const { default: Customer } = await import("../models/Customer.js");
+  const { default: Tenant } = await import("../models/Tenant.js");
+  // Same location the POS and sales use by default (user's location, else the business default).
+  const locId = (await resolveLocation(ctx, locationId).catch(() => null))?._id || null;
+  const [items, customers, tenant] = await Promise.all([
+    Product.find(scoped(ctx, { isDeleted: false, status: "active" }))
+      .select("name sku barcode unit sellingPrice image quantity")
+      .sort({ name: 1 })
+      .limit(5000)
+      .lean(),
+    Customer.find(scoped(ctx, { isDeleted: false })).select("name phone type balance creditLimit").sort({ name: 1 }).limit(3000).lean(),
+    Tenant.findById(ctx.tenantId).select("businessName address phone logo currency settings").lean(),
+  ]);
+  const stock = locId ? await ProductStock.find(scoped(ctx, { locationId: locId })).select("productId quantity").lean() : [];
+  const stockMap = new Map(stock.map((s) => [String(s.productId), s.quantity]));
+  return {
+    tenantId: String(ctx.tenantId),
+    locationId: locId ? String(locId) : "",
+    generatedAt: new Date().toISOString(),
+    business: {
+      businessName: tenant?.businessName,
+      address: tenant?.address,
+      phone: tenant?.phone,
+      logo: tenant?.logo,
+      settings: {
+        taxRate: tenant?.settings?.taxRate || 0,
+        taxLabel: tenant?.settings?.taxLabel || "VAT",
+        receiptHeader: tenant?.settings?.receiptHeader,
+        receiptFooter: tenant?.settings?.receiptFooter,
+        showLogoOnReceipt: tenant?.settings?.showLogoOnReceipt,
+      },
+    },
+    products: items.map((p) => ({
+      id: String(p._id),
+      name: p.name,
+      sku: p.sku,
+      barcode: p.barcode || "",
+      unit: p.unit,
+      price: p.sellingPrice,
+      image: p.image || "",
+      quantity: locId ? stockMap.get(String(p._id)) || 0 : p.quantity,
+    })),
+    customers: customers.map((c) => ({ _id: String(c._id), name: c.name, phone: c.phone || "", type: c.type, balance: c.balance || 0, creditLimit: c.creditLimit || 0 })),
+  };
 }

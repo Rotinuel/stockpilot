@@ -28,6 +28,7 @@ export function BusinessForm({ tenant }) {
     businessName: tenant.businessName || "",
     email: tenant.email || "",
     phone: tenant.phone || "",
+    whatsappNumber: tenant.whatsappNumber || "",
     address: tenant.address || "",
     businessType: tenant.businessType || "",
     logo: tenant.logo || "",
@@ -57,6 +58,9 @@ export function BusinessForm({ tenant }) {
           </Field>
           <Field label="Phone" error={errors.phone}>
             <Input value={v.phone} onChange={set("phone")} />
+          </Field>
+          <Field label="WhatsApp number for alerts" error={errors.whatsappNumber} hint="Receives low-stock, trial and payment alerts. Leave empty to stop them." className="sm:col-span-2">
+            <Input type="tel" inputMode="tel" value={v.whatsappNumber} onChange={set("whatsappNumber")} placeholder="0803 123 4567" />
           </Field>
           <Field label="Address" error={errors.address} className="sm:col-span-2">
             <Textarea rows={2} value={v.address} onChange={set("address")} />
@@ -148,10 +152,11 @@ export function InvoiceSettingsForm({ settings }) {
   );
 }
 
-export function NotificationSettingsForm({ settings, isOwner }) {
+export function NotificationSettingsForm({ settings, isOwner, whatsappNumber = "", whatsappConfigured = false }) {
   const [v, setV] = useState({
     lowStockNotifications: settings.lowStockNotifications !== false,
     emailNotifications: settings.emailNotifications !== false,
+    whatsappNotifications: settings.whatsappNotifications !== false,
     allowCashierReports: Boolean(settings.allowCashierReports),
   });
   const { run, loading } = useAction();
@@ -169,6 +174,18 @@ export function NotificationSettingsForm({ settings, isOwner }) {
         <CardBody className="space-y-5">
           <Checkbox checked={v.lowStockNotifications} onChange={set("lowStockNotifications")} label="Low-stock alerts" description="Notify owner, admins, managers and inventory staff when products run low (Business plan and above)." />
           <Checkbox checked={v.emailNotifications} onChange={set("emailNotifications")} label="Email notifications" description="Also send billing and important alerts to owners and admins by email." />
+          <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+            <Checkbox
+              checked={v.whatsappNotifications}
+              onChange={set("whatsappNotifications")}
+              label="WhatsApp alerts"
+              description={whatsappNumber ? `Sent to ${whatsappNumber}: low stock, trial reminders, payment success/failure, renewals and cancellations.` : "Add a WhatsApp number under Business first."}
+            />
+            <div className="mt-3 flex flex-wrap items-center gap-3 pl-7">
+              <WhatsAppTestButton disabled={!whatsappNumber} />
+              {!whatsappConfigured ? <span className="text-xs text-slate-500">WhatsApp API keys aren't set on the server yet — messages are written to the server log.</span> : null}
+            </div>
+          </div>
           {isOwner ? <Checkbox checked={v.allowCashierReports} onChange={set("allowCashierReports")} label="Let cashiers view sales reports" description="Cashiers can see the Sales report (never profit, expenses or billing)." /> : null}
         </CardBody>
         <SaveBar loading={loading} />
@@ -210,7 +227,7 @@ export function AccountForm({ user, allowAvatar = true }) {
   );
 }
 
-export function SecurityForm() {
+export function SecurityForm({ hasPassword = true, googleLinked = false }) {
   const [v, setV] = useState({ currentPassword: "", newPassword: "", confirm: "" });
   const { run, loading, errors, setErrors } = useAction();
   const confirm = useConfirm();
@@ -230,11 +247,16 @@ export function SecurityForm() {
     <div className="space-y-6">
       <Card>
         <form onSubmit={submit} noValidate>
-          <CardHeader title="Change password" />
-          <CardBody className="grid gap-4 sm:grid-cols-3">
-            <Field label="Current password" error={errors.currentPassword}>
-              <Input type="password" autoComplete="current-password" value={v.currentPassword} onChange={(e) => setV({ ...v, currentPassword: e.target.value })} />
-            </Field>
+          <CardHeader
+            title={hasPassword ? "Change password" : "Set a password"}
+            description={hasPassword ? undefined : "You sign in with Google. Add a password to also sign in with your email."}
+          />
+          <CardBody className={`grid gap-4 ${hasPassword ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+            {hasPassword ? (
+              <Field label="Current password" error={errors.currentPassword}>
+                <Input type="password" autoComplete="current-password" value={v.currentPassword} onChange={(e) => setV({ ...v, currentPassword: e.target.value })} />
+              </Field>
+            ) : null}
             <Field label="New password" error={errors.newPassword}>
               <Input type="password" autoComplete="new-password" value={v.newPassword} onChange={(e) => setV({ ...v, newPassword: e.target.value })} />
             </Field>
@@ -246,8 +268,25 @@ export function SecurityForm() {
         </form>
       </Card>
       <Card>
+        <CardHeader title="Google sign-in" description={googleLinked ? "Your Google account is connected — you can use “Continue with Google”." : "Sign in once with “Continue with Google” using this email to connect it."} />
+      </Card>
+      <Card>
         <CardHeader title="Sessions" description="Signed in on a shared or lost device?" action={<Button variant="outline" icon={LogOut} onClick={logoutAll}>Sign out other devices</Button>} />
       </Card>
     </div>
+  );
+}
+
+function WhatsAppTestButton({ disabled }) {
+  const { run, loading } = useAction();
+  const send = () =>
+    run(() => apiFetch("/api/tenant/whatsapp-test", { method: "POST" }), {
+      success: "Test message sent",
+      successMessage: "Check WhatsApp on the business number.",
+    });
+  return (
+    <Button type="button" size="sm" variant="outline" onClick={send} loading={loading} disabled={disabled}>
+      Send test message
+    </Button>
   );
 }

@@ -68,6 +68,13 @@ export async function createSale(ctx, data, request) {
 
   const saleId = new mongoose.Types.ObjectId();
   const stockResults = [];
+  // Sales recorded while offline carry the device time; accept it only within a sane window.
+  let soldAt = null;
+  if (data.occurredAt) {
+    const t = new Date(data.occurredAt);
+    const age = Date.now() - t.getTime();
+    if (!Number.isNaN(t.getTime()) && age > 60_000 && age < 7 * 24 * 3600 * 1000) soldAt = t;
+  }
 
   const sale = await withTransaction(async (session) => {
     const comp = new Compensation(!session);
@@ -85,7 +92,7 @@ export async function createSale(ctx, data, request) {
           locationId: location._id,
           delta: -line.quantity,
           type: "sale",
-          reason: `Sale ${invoiceNumber}`,
+          reason: soldAt ? `Sale ${invoiceNumber} (recorded offline ${soldAt.toISOString().slice(0, 16).replace("T", " ")} UTC)` : `Sale ${invoiceNumber}`,
           referenceId: saleId,
           referenceType: "Sale",
           referenceNumber: invoiceNumber,
@@ -126,13 +133,19 @@ export async function createSale(ctx, data, request) {
             status: "completed",
             notes: data.notes,
             clientRequestId: data.clientRequestId,
+            source: soldAt ? "offline" : "pos",
           },
         ],
         opts,
       );
       comp.add(() => Sale.deleteOne({ _id: saleId }));
 
-      const now = created.createdAt || new Date();
+      // Offline sales keep the time they actually happened (raw driver update: createdAt is immutable in Mongoose).
+      if (soldAt) {
+        await Sale.collection.updateOne({ _id: saleId }, { $set: { createdAt: soldAt, occurredAt: soldAt } }, opts);
+        created.createdAt = soldAt;
+      }
+      const now = soldAt || created.createdAt || new Date();
       await SaleItem.insertMany(
         lines.map((l) => ({
           tenantId: ctx.tenantId,

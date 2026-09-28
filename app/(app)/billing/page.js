@@ -21,6 +21,7 @@ export default async function BillingPage() {
   const data = toPlain(await getBillingOverview(ctx));
   const { tenant, currentPlan, plans, payments, usage, pendingPlan } = data;
   const canManage = sessionCan(session, "billing:manage");
+  const isDev = process.env.NODE_ENV !== "production";
   const isTrial = tenant.subscriptionStatus === "trialing";
   const isPaidActive = ["active", "past_due", "cancelled"].includes(access.state);
   const statusLabel = access.state === "trial_expired" ? "Trial expired" : SUBSCRIPTION_STATUS_LABELS[access.effectiveStatus] || access.effectiveStatus;
@@ -35,8 +36,18 @@ export default async function BillingPage() {
     <>
       <PageHeader title="Billing" description="Your plan, subscription and payment history." />
       {!data.paystackConfigured ? (
-        <Alert tone="warning" icon={Info} className="mb-6" title="Online payments are not configured">
-          The platform administrator needs to add Paystack API keys before subscriptions can be purchased.
+        <Alert tone="warning" icon={Info} className="mb-6" title="Online payments are not set up yet">
+          {isDev ? (
+            <>
+              {data.paystack?.problem} Add <code className="rounded bg-amber-100 px-1">PAYSTACK_SECRET_KEY=sk_test_…</code> to your <code className="rounded bg-amber-100 px-1">.env</code> file (Paystack Dashboard → Settings → API Keys &amp; Webhooks), then stop the server and start it again — keys are only read when the server starts.
+            </>
+          ) : (
+            "Subscriptions can't be paid for right now. Please contact support — the platform administrator needs to finish the payment setup."
+          )}
+        </Alert>
+      ) : data.paystack?.mode === "test" ? (
+        <Alert tone="info" icon={Info} className="mb-6" title="Paystack test mode">
+          Payments use your Paystack test key, so no real money is charged. Use Paystack&apos;s test card 4084 0840 8408 4081, any future expiry, CVV 408, PIN 0000 and OTP 123456.
         </Alert>
       ) : null}
       {!canManage ? (

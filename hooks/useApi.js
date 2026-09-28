@@ -26,6 +26,7 @@ export async function apiFetch(url, { method = "GET", body, headers, signal } = 
     });
   } catch (err) {
     if (err?.name === "AbortError") throw err;
+    if (typeof window !== "undefined") window.dispatchEvent(new Event("sp:unreachable"));
     throw new ClientApiError("Network error — check your internet connection and try again.", { status: 0, code: "NETWORK" });
   }
   let data = null;

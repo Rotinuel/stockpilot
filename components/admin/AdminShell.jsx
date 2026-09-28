@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LayoutDashboard, Building2, Users, Repeat, CreditCard, Layers, History, Settings, Menu, X, LogOut, ShieldCheck } from "lucide-react";
 import { LogoMark } from "@/components/layout/Logo";
 import { apiFetch } from "@/hooks/useApi";
+import { clearOfflineData } from "@/lib/offline/store";
 import { cn } from "@/utils/cn";
 
 const NAV = [
@@ -42,6 +43,7 @@ export default function AdminShell({ user, children }) {
   const router = useRouter();
   useEffect(() => setOpen(false), [pathname]);
   const logout = async () => {
+    await clearOfflineData();
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
     } finally {

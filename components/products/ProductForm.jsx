@@ -108,6 +108,9 @@ export default function ProductFormModal({ open, onClose, product, categories = 
       }
     >
       <form id="product-form" onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
+        <Field label="Product photo" className="sm:col-span-2" error={errors.image}>
+          <ImageUpload variant="dropzone" label={values.image ? "Change photo" : "Add a product photo"} value={values.image} onChange={(url) => setValues((v) => ({ ...v, image: url }))} />
+        </Field>
         <Field label="Product name" htmlFor="name" error={errors.name} required className="sm:col-span-2">
           <Input id="name" value={values.name} onChange={set("name")} placeholder="e.g. Peak Milk 400g Tin" required />
         </Field>
@@ -193,9 +196,6 @@ export default function ProductFormModal({ open, onClose, product, categories = 
             <option value="active">Active (sellable)</option>
             <option value="inactive">Inactive (hidden from POS)</option>
           </Select>
-        </Field>
-        <Field label="Image" className="sm:col-span-2">
-          <ImageUpload value={values.image} onChange={(url) => setValues((v) => ({ ...v, image: url }))} />
         </Field>
         <Field label="Description" htmlFor="description" error={errors.description} className="sm:col-span-2">
           <Textarea id="description" value={values.description} onChange={set("description")} rows={2} />

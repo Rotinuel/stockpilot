@@ -2,14 +2,18 @@ import Notification from "../models/Notification.js";
 import User from "../models/User.js";
 import Tenant from "../models/Tenant.js";
 import { sendNotificationEmail } from "../lib/email.js";
+import { sendTenantWhatsApp } from "./whatsapp.js";
 
 /**
  * Create an in-app notification (idempotent when dedupeKey is given).
  * Optionally emails the tenant's owner/admins.
  */
-export async function notify({ tenantId, userId = null, roles = [], type = "system", severity = "info", title, message, link, dedupeKey, email = false }) {
+/** @param {object} p  whatsapp: true also sends the alert to the business WhatsApp number */
+export async function notify({ tenantId, userId = null, roles = [], type = "system", severity = "info", title, message, link, dedupeKey, email = false, whatsapp = false }) {
   try {
     const doc = await Notification.create({ tenantId, userId, roles, type, severity, title, message, link, dedupeKey });
+    // Only reached for NEW notifications (dedupe duplicates throw 11000 above), so WhatsApp is never spammed.
+    if (whatsapp && tenantId) await sendTenantWhatsApp(tenantId, { title, message, type });
     if (email && tenantId) {
       const tenant = await Tenant.findById(tenantId).select("settings").lean();
       if (tenant?.settings?.emailNotifications !== false) {

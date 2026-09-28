@@ -1,7 +1,9 @@
 import Tenant from "../models/Tenant.js";
 import User from "../models/User.js";
 import Location from "../models/Location.js";
-import { forbidden, notFound } from "../lib/errors.js";
+import { forbidden, notFound, validationError } from "../lib/errors.js";
+import { normalizePhone } from "../lib/phone.js";
+import { sendTenantWhatsApp } from "./whatsapp.js";
 import { logAudit } from "./audit.js";
 
 export async function getBusiness(ctx) {
@@ -16,6 +18,15 @@ export async function updateBusiness(ctx, data, request) {
     throw forbidden("Only the business owner can change staff permissions.");
   }
   const $set = {};
+  if (data.whatsappNumber !== undefined) {
+    if (data.whatsappNumber === "") $set.whatsappNumber = "";
+    else {
+      const current = await Tenant.findById(ctx.tenantId).select("country").lean();
+      const e164 = normalizePhone(data.whatsappNumber, data.country || current?.country || "NG");
+      if (!e164) throw validationError({ whatsappNumber: "Enter a valid WhatsApp number, e.g. 0803 123 4567" });
+      $set.whatsappNumber = e164;
+    }
+  }
   for (const key of ["businessName", "email", "phone", "address", "businessType", "logo", "currency", "timezone", "country"]) {
     if (data[key] !== undefined) $set[key] = data[key];
   }
@@ -66,4 +77,16 @@ export async function updateAccount(ctx, data) {
   if (data.phone !== undefined) $set.phone = data.phone;
   if (data.avatar !== undefined) $set.avatar = data.avatar;
   return User.findByIdAndUpdate(ctx?.userId, { $set }, { new: true }).select("name email phone avatar role").lean();
+}
+
+export async function sendWhatsAppTest(ctx) {
+  const tenant = await Tenant.findById(ctx.tenantId).select("whatsappNumber").lean();
+  if (!tenant?.whatsappNumber) throw validationError({ whatsappNumber: "Add a WhatsApp number first." });
+  const r = await sendTenantWhatsApp(ctx.tenantId, {
+    title: "StockPilot test message",
+    message: `WhatsApp alerts are working. Sent by ${ctx.userName}.`,
+    type: "system",
+    force: true,
+  });
+  return { ...r, to: tenant.whatsappNumber };
 }

@@ -32,6 +32,8 @@ const SaleSchema = new Schema(
     cancelledBy: { type: ObjectId, ref: "User" },
     cancelReason: String,
     clientRequestId: { type: String }, // idempotency key from the POS (prevents double submission)
+    source: { type: String, enum: ["pos", "offline"], default: "pos" },
+    occurredAt: Date, // when an offline sale actually happened (createdAt is set to this too)
   },
   baseOptions,
 );

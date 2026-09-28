@@ -6,7 +6,16 @@ const UserSchema = new Schema(
     name: { type: String, required: true, trim: true, maxlength: 120 },
     email: { type: String, required: true, trim: true, lowercase: true, maxlength: 160 },
     phone: { type: String, trim: true, maxlength: 32 },
-    password: { type: String, required: true, select: false },
+    // Optional for accounts created with Google sign-in (they can set one later).
+    password: {
+      type: String,
+      select: false,
+      required: function () {
+        return !this.googleId;
+      },
+    },
+    googleId: { type: String, select: false },
+    authProviders: { type: [String], default: ["password"] },
     role: { type: String, enum: ALL_ROLES, required: true, default: "owner" },
     // Super admins have no tenant; every other user belongs to exactly one tenant.
     tenantId: { type: ObjectId, ref: "Tenant", index: true, default: null },
@@ -31,6 +40,7 @@ UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ tenantId: 1, role: 1 });
 UserSchema.index({ tenantId: 1, isActive: 1 });
 UserSchema.index({ passwordResetTokenHash: 1 }, { sparse: true });
+UserSchema.index({ googleId: 1 }, { unique: true, partialFilterExpression: { googleId: { $type: "string" } } });
 UserSchema.index({ emailVerificationTokenHash: 1 }, { sparse: true });
 
 export default defineModel("User", UserSchema);

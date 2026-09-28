@@ -33,6 +33,7 @@ StockPilot is a multi-tenant SaaS inventory, POS and business-management platfor
 
 **For businesses (tenants)**
 
+- Email/password **or Google** sign-in and sign-up.
 - Registration → business workspace, owner account, default location and a **7-day free trial** (no card needed), then a 6-step onboarding wizard (skippable steps).
 - **Products**: SKU (auto-generated if blank), barcode, category, brand, cost/selling price, units (piece, pack, carton, bottle, kg, g, litre, metre…), low-stock level, supplier, image, status. Search, filter, sort, server-side pagination, **CSV import/export**.
 - **Inventory**: per-location stock, immutable movement ledger (opening stock, purchase, sale, adjustment, return, damage, transfer) with before/after quantities, reason and user. Stock is never changed without a movement.
@@ -100,6 +101,8 @@ See `.env.example` for the full, commented list.
 | `JWT_SECRET` | ✅ | ≥32 random characters; signs session tokens |
 | `NEXT_PUBLIC_APP_URL` | ✅ | Public base URL (links in emails, Paystack callback, sitemap) |
 | `SESSION_DAYS` | | Session lifetime (default 7) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | optional | Enables “Continue with Google” sign-in and sign-up |
+| `GOOGLE_REDIRECT_URI` | optional | Override the OAuth callback (default `NEXT_PUBLIC_APP_URL/api/auth/google/callback`) |
 | `PAYSTACK_SECRET_KEY` | for billing | Paystack secret key (server only) |
 | `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY` | optional | Public key (not required by the redirect checkout flow; safe to expose) |
 | `PAYSTACK_WEBHOOK_SECRET` | optional | Key used to verify webhook HMAC. Paystack signs with your **secret key**, so leave empty unless you proxy webhooks |
@@ -122,6 +125,63 @@ Only variables prefixed with `NEXT_PUBLIC_` are ever sent to the browser. MongoD
   ```
 - **Transactions**: sales, purchases, cancellations, stock adjustments and registration run inside multi-document transactions when the server is a replica set/Atlas. On a standalone server the same code path uses **compensating writes** (every write registers an undo step that runs if a later step fails) and conditional atomic updates (`quantity >= n`) so stock can never go negative. Production should use a replica set.
 - **Indexes** are declared on every model (tenant-scoped compound indexes such as `{tenantId, sku}` unique, `{tenantId, createdAt}`, `{tenantId, invoiceNumber}` unique, `{tenantId, barcode}` partial unique, `{email}` unique). `bun run seed` creates them explicitly; in development Mongoose auto-indexes. In production set `MONGODB_AUTO_INDEX=true` once or run the seed.
+
+## Google sign-in setup
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → create/select a project → **APIs & Services → OAuth consent screen** (External, app name, support email; scopes `openid`, `email`, `profile`).
+2. **Credentials → Create credentials → OAuth client ID → Web application**.
+   - Authorised JavaScript origin: `http://localhost:3000` (and your production domain)
+   - Authorised redirect URI: `http://localhost:3000/api/auth/google/callback` (and `https://YOUR_DOMAIN/api/auth/google/callback`)
+3. Put the client ID/secret in `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` and restart the server. “Continue with Google” now appears on the sign-in and sign-up pages.
+
+How it works (no extra SDK):
+
+- **Authorization Code + PKCE**, with `state` and `nonce` kept in a short-lived, signed, HTTP-only cookie. The callback rejects mismatched state (CSRF/login-fixation protection).
+- The code is exchanged server-side (client secret never reaches the browser) and the **ID token is verified** against Google's public keys (issuer, audience, expiry, nonce). Only Google-verified emails are accepted.
+- **Existing account with the same email** → signed in and the Google account is linked automatically.
+- **New person** → redirected to `/register/google` to enter business details (name, phone, country, business type); the Google identity is carried in a signed cookie, never in the form. The workspace, owner and 7-day trial are created exactly as with email sign-up; the email is marked verified.
+- Google-only users can add a password later (Settings → Security) or via “Forgot password”. Super admins must use email + password.
+
+## WhatsApp alerts
+
+Every business registers with a **WhatsApp phone number** (required at sign-up, including Google sign-up). It's normalised to international format (`0803 123 4567` → `+2348031234567`) and stored as the business's alert number. People can opt out when they sign up, turn alerts on or off, change the number and send a test message under **Settings → Business / Notifications**.
+
+Alerts sent to WhatsApp (as well as in-app, and email where enabled):
+
+- Welcome + trial start, trial reminders (5, 3 and 1 days left), trial expired
+- Payment successful, payment failed, subscription renewed, cancelled, plan-change reminders
+- Renewal not confirmed / grace period / account read-only
+- Daily low-stock digest (plans with low-stock alerts)
+
+Each notification is sent once (they're de-duplicated), and every message is logged in the `whatsappmessages` collection with its delivery status.
+
+**Setup (Meta WhatsApp Business Cloud API):**
+
+1. In [Meta for Developers](https://developers.facebook.com/) create an app → add **WhatsApp**. Note the **Phone number ID** and create a **permanent access token** (System User in Business Settings with `whatsapp_business_messaging` permission).
+2. In WhatsApp Manager create a message template named `stockpilot_alert`, category **Utility**, language **English**, body for example:
+   `StockPilot: {{1}} — {{2}}`
+   and wait for approval. (WhatsApp only allows businesses to start conversations with approved templates.)
+3. Set `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` (and `WHATSAPP_TEMPLATE_NAME` / `WHATSAPP_TEMPLATE_LANGUAGE` if you used different values). Restart and use **Send test message** in Settings.
+
+Without credentials, messages are printed to the server console so you can develop without a WhatsApp account.
+
+**Receipts on WhatsApp:** after a sale (in the POS or on the sale page) tap **WhatsApp receipt** to open WhatsApp with the receipt text addressed to the customer's phone number. This uses a free click-to-chat link and doesn't need the API.
+
+## Offline mode
+
+StockPilot is an installable web app (PWA) and the **POS keeps working without internet**:
+
+- A service worker (`public/sw.js`) caches the app's code and the pages you use. As soon as you sign in (while online), the device saves the **POS, dashboard and sales** pages plus your product/customer catalogue in the background, so they open offline even if you haven't visited them yet. Other pages you've opened show the data from your last visit; anything else shows an offline page linking to the POS. On a very slow connection the saved page is shown after 7 seconds instead of waiting forever.
+- The POS downloads a snapshot of your products, stock at the current location, customers and receipt details into the browser (IndexedDB) and searches it locally, so barcode scanning stays instant even on a slow connection.
+- **Sales made offline** are saved on the device with their real time, stock is reduced locally, and a receipt is shown (marked "Saved offline"). The header shows **Offline · n to sync**.
+- When the connection returns they're **sent automatically** (and every 30 seconds, or with **Sync now**). Each sale carries a unique ID, so a sale can never be recorded twice even if the connection drops mid-sync. The server re-checks stock and prices; if a sale can't be recorded (e.g. an item sold out meanwhile) it's marked **failed** in the POS so you can fix stock and **Retry**, or **Discard** it.
+- Signing out clears offline data from the device (you're warned first if sales haven't synced).
+
+Offline mode works in both `bun run dev` and production builds (in dev, code is always loaded fresh from the server while you're online, so edits aren't hidden). Set `NEXT_PUBLIC_DISABLE_OFFLINE=true` to switch it off.
+
+**How to test it:** sign in and open any app page while online, wait a few seconds, then either stop the server, switch off Wi‑Fi, or tick **Offline** in Chrome DevTools → Network. Reload or open **/pos** — it loads, you can sell, and the header shows **Offline**. Start the server / reconnect and the sales sync automatically. On a phone the app must be opened over HTTPS (or `localhost`) for offline mode to work — a plain `http://192.168.x.x` address won't enable the service worker. To install the app on a phone or desktop, use the browser's **Install app / Add to Home screen** option.
+
+What needs a connection: signing in for the first time on a device, adding or editing products, purchases, payments, reports and billing. Products, customers and stock levels shown offline are as of the last sync.
 
 ## Paystack setup
 

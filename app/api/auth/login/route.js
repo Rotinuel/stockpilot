@@ -6,14 +6,8 @@ import { isLimited, recordHit, RATE_LIMITS } from "@/lib/rate-limit";
 import { loginSchema } from "@/lib/validators";
 import { login } from "@/services/auth";
 import { setSessionCookie } from "@/lib/auth/cookies";
+import { safeNext } from "@/lib/auth/redirects";
 
-function safeNext(next, role) {
-  const fallback = role === "super_admin" ? "/super-admin" : "/dashboard";
-  if (typeof next !== "string" || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/api")) return fallback;
-  if (role === "super_admin" && !next.startsWith("/super-admin")) return fallback;
-  if (role !== "super_admin" && next.startsWith("/super-admin")) return fallback;
-  return next;
-}
 
 export const POST = withApi(
   async ({ request }) => {

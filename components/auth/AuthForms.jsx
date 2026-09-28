@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, CircleCheck, TriangleAlert } from "lucide-react";
 import Button from "@/components/ui/Button";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { Field, Input, Select, Checkbox } from "@/components/ui/Field";
 import { apiFetch } from "@/hooks/useApi";
 import { BUSINESS_TYPES, COUNTRIES } from "@/lib/constants";
 
@@ -87,7 +87,7 @@ export function LoginForm({ next }) {
 
 export function RegisterForm() {
   const router = useRouter();
-  const f = useForm({ businessName: "", ownerName: "", email: "", phone: "", password: "", country: "NG", businessType: "" });
+  const f = useForm({ businessName: "", ownerName: "", email: "", phone: "", password: "", country: "NG", businessType: "", whatsappOptIn: true });
   const onSubmit = (e) => {
     e.preventDefault();
     f.submit(async (v) => {
@@ -106,8 +106,8 @@ export function RegisterForm() {
         <Field label="Your name" htmlFor="ownerName" error={f.errors.ownerName} required>
           <Input autoComplete="name" required {...f.bind("ownerName")} />
         </Field>
-        <Field label="Phone number" htmlFor="phone" error={f.errors.phone} required>
-          <Input type="tel" autoComplete="tel" placeholder="0803 000 0000" required {...f.bind("phone")} />
+        <Field label="WhatsApp phone number" htmlFor="phone" error={f.errors.phone} hint="For stock, trial and payment alerts" required>
+          <Input type="tel" autoComplete="tel" inputMode="tel" placeholder="0803 000 0000" required {...f.bind("phone")} />
         </Field>
       </div>
       <Field label="Email address" htmlFor="email" error={f.errors.email} required>
@@ -137,6 +137,12 @@ export function RegisterForm() {
       <Field label="Password" htmlFor="password" error={f.errors.password} hint="At least 8 characters, with letters and numbers." required>
         <PasswordInput autoComplete="new-password" {...f.bind("password")} />
       </Field>
+      <Checkbox
+        checked={f.values.whatsappOptIn}
+        onChange={(e) => f.setValues((v) => ({ ...v, whatsappOptIn: e.target.checked }))}
+        label="Send me alerts on WhatsApp"
+        description="Low stock, trial reminders and payment updates. You can turn this off in Settings."
+      />
       <Button type="submit" className="w-full" size="lg" loading={f.loading}>
         Start my 7-day free trial
       </Button>
@@ -259,5 +265,68 @@ function SuccessBox({ message, action }) {
       </p>
       {action ? <div className="mt-3">{action}</div> : null}
     </div>
+  );
+}
+
+export function GoogleSignupForm({ name, email }) {
+  const router = useRouter();
+  const f = useForm({ ownerName: name || "", businessName: "", phone: "", country: "NG", businessType: "", whatsappOptIn: true });
+  const onSubmit = (e) => {
+    e.preventDefault();
+    f.submit(async (v) => {
+      const res = await apiFetch("/api/auth/google/complete", { method: "POST", body: v });
+      router.replace(res.redirect || "/onboarding");
+      router.refresh();
+    });
+  };
+  return (
+    <form onSubmit={onSubmit} className="space-y-4" noValidate>
+      <FormError message={f.error} />
+      <Field label="Google account">
+        <Input value={email} disabled readOnly />
+      </Field>
+      <Field label="Business name" htmlFor="businessName" error={f.errors.businessName} required>
+        <Input placeholder="e.g. Mama Nkechi Supermarket" autoComplete="organization" required {...f.bind("businessName")} />
+      </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Your name" htmlFor="ownerName" error={f.errors.ownerName} required>
+          <Input autoComplete="name" required {...f.bind("ownerName")} />
+        </Field>
+        <Field label="WhatsApp phone number" htmlFor="phone" error={f.errors.phone} hint="For stock, trial and payment alerts" required>
+          <Input type="tel" autoComplete="tel" inputMode="tel" placeholder="0803 000 0000" required {...f.bind("phone")} />
+        </Field>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Country" htmlFor="country" error={f.errors.country} required>
+          <Select {...f.bind("country")}>
+            {COUNTRIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Business type" htmlFor="businessType" error={f.errors.businessType} required>
+          <Select {...f.bind("businessType")}>
+            <option value="">Select…</option>
+            {BUSINESS_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <Checkbox
+        checked={f.values.whatsappOptIn}
+        onChange={(e) => f.setValues((v) => ({ ...v, whatsappOptIn: e.target.checked }))}
+        label="Send me alerts on WhatsApp"
+        description="Low stock, trial reminders and payment updates. You can turn this off in Settings."
+      />
+      <Button type="submit" className="w-full" size="lg" loading={f.loading}>
+        Start my 7-day free trial
+      </Button>
+      <p className="text-center text-xs text-slate-500">No payment required. You'll sign in with Google — no password needed.</p>
+    </form>
   );
 }

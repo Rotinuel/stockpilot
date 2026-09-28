@@ -10,7 +10,7 @@ import User from "../models/User.js";
 import Payment from "../models/Payment.js";
 import Subscription from "../models/Subscription.js";
 import SubscriptionPlan from "../models/SubscriptionPlan.js";
-import { paystack, isPaystackConfigured } from "../lib/paystack.js";
+import { paystack, isPaystackConfigured, paystackStatus } from "../lib/paystack.js";
 import { toSubunit, fromSubunit, round2 } from "../lib/money.js";
 import { randomReference } from "../lib/auth/tokens.js";
 import { appUrl } from "../lib/request.js";
@@ -54,7 +54,7 @@ export async function getBillingOverview(ctx) {
   ]);
   const currentPlan = await getEffectivePlan(tenant);
   const pendingPlan = tenant.pendingPlanChange?.planId ? await getPlanById(tenant.pendingPlanChange.planId) : null;
-  return { tenant, currentPlan, plans, payments, usage, pendingPlan, paystackConfigured: isPaystackConfigured() };
+  return { tenant, currentPlan, plans, payments, usage, pendingPlan, paystackConfigured: isPaystackConfigured(), paystack: paystackStatus() };
 }
 
 // ── Paystack plan sync ──────────────────────────────────────
@@ -207,6 +207,7 @@ export async function verifyAndApply(reference, { expectedTenantId, via = "callb
         link: "/billing",
         dedupeKey: `payfail:${payment.reference}`,
         email: true,
+        whatsapp: true,
       });
     }
     return { status: tx.status, payment: updated || payment };
@@ -308,6 +309,7 @@ async function applySuccessfulPayment(payment, tx, via) {
     link: "/billing",
     dedupeKey: `paysuccess:${payment.reference}`,
     email: true,
+    whatsapp: true,
   });
   return { alreadyProcessed: false, plan: plan.code, periodEnd: end };
 }
@@ -550,6 +552,7 @@ async function markPastDue(tenant, reason, reference) {
     link: "/billing",
     dedupeKey: `pastdue:${tenant._id}:${reference || now.toISOString().slice(0, 10)}`,
     email: true,
+    whatsapp: true,
   });
   await logAudit({ tenantId: tenant._id, userName: "Paystack", role: "system" }, "subscription.past_due", { entity: "Tenant", entityId: tenant._id, metadata: { reason, graceEndsAt } });
 }
@@ -660,6 +663,7 @@ export async function applyScheduledPlanChange(tenant) {
     link: "/billing",
     dedupeKey: `planchange:${tenant._id}:${plan._id}`,
     email: true,
+    whatsapp: true,
   });
   return { switched: plan.code };
 }

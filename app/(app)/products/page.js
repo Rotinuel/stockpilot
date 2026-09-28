@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Package, ImageOff } from "lucide-react";
+import { Package } from "lucide-react";
 import { requireTenantSession, sessionCan } from "@/lib/session";
 import { listProducts, listCategories } from "@/services/products";
 import { allSuppliersLite } from "@/services/suppliers";
@@ -13,6 +13,7 @@ import Pagination from "@/components/ui/Pagination";
 import { SearchInput, FilterSelect } from "@/components/ui/UrlFilters";
 import ProductsToolbar from "@/components/products/ProductsToolbar";
 import ProductRowActions from "@/components/products/ProductRowActions";
+import { ProductThumb } from "@/components/products/ProductPhoto";
 import AccessDenied from "@/components/layout/AccessDenied";
 
 export const metadata = { title: "Products" };
@@ -43,6 +44,7 @@ export default async function ProductsPage({ searchParams }) {
   const sups = toPlain(suppliers);
   const locs = toPlain(locations);
   const canWrite = session.access.canWrite;
+  const canEditPhotos = canWrite && sessionCan(session, "products:update");
   const filtered = Boolean(str(sp, "q") || str(sp, "category") || str(sp, "status") || str(sp, "stock"));
 
   return (
@@ -114,14 +116,7 @@ export default async function ProductsPage({ searchParams }) {
                   <tr key={String(p._id)}>
                     <td>
                       <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
-                          {p.image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={p.image} alt="" className="h-full w-full object-cover" loading="lazy" />
-                          ) : (
-                            <ImageOff className="h-4 w-4 text-slate-300" />
-                          )}
-                        </div>
+                        <ProductThumb productId={String(p._id)} image={p.image || ""} canEdit={canEditPhotos} />
                         <div className="min-w-0">
                           <Link href={`/products/${p._id}`} className="block max-w-56 truncate font-medium text-slate-900 hover:text-brand-700">
                             {p.name}

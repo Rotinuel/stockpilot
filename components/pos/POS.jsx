@@ -1,16 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, ScanBarcode, Minus, Plus, Trash2, UserRound, UserPlus, X, ShoppingCart, Printer, CircleCheck, Banknote, CreditCard, Smartphone, Landmark, Ellipsis, LoaderCircle, ImageOff } from "lucide-react";
+import { Search, ScanBarcode, Minus, Plus, Trash2, UserRound, UserPlus, X, ShoppingCart, Printer, CircleCheck, Banknote, CreditCard, Smartphone, Landmark, Ellipsis, LoaderCircle, ImageOff, WifiOff, CloudUpload, RefreshCw } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import Receipt from "@/components/sales/Receipt";
+import WhatsAppReceiptButton from "@/components/sales/WhatsAppReceiptButton";
 import { apiFetch, useAction } from "@/hooks/useApi";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useToast } from "@/components/ui/Toast";
 import { computeCartTotals, formatMoney, settlePayment } from "@/lib/money";
 import { cn } from "@/utils/cn";
+import { useOnline } from "@/components/offline/OfflineManager";
+import { OUTBOX_EVENT, applyLocalSale, listOutbox, loadCatalog, queueSale, removeOutbox, saveCatalog, searchCatalog, syncOutbox, updateOutbox } from "@/lib/offline/store";
 
 const METHODS = [
   { value: "cash", label: "Cash", icon: Banknote },
@@ -24,7 +27,7 @@ function newRequestId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-export default function POS({ initialProducts, currency, taxRate, taxLabel, locations, defaultLocationId, allowCredit }) {
+export default function POS({ initialProducts, currency, taxRate, taxLabel, locations, defaultLocationId, allowCredit, tenantId, userId, cashierName }) {
   const toast = useToast();
   const searchRef = useRef(null);
   const [q, setQ] = useState("");
@@ -42,10 +45,37 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
   const [receipt, setReceipt] = useState(null);
   const [mobileCart, setMobileCart] = useState(false);
   const requestId = useRef(newRequestId());
-  const { run, loading } = useAction();
+
+  const online = useOnline();
+  const [catalog, setCatalog] = useState(null);
+  const catalogRef = useRef(null);
+  catalogRef.current = catalog;
+
+  // Offline catalogue: load the saved copy instantly, then refresh from the server when online.
+  const refreshCatalog = useCallback(async () => {
+    if (!tenantId) return;
+    const cached = await loadCatalog(tenantId, locationId);
+    if (cached) setCatalog(cached);
+    if (typeof navigator !== "undefined" && !navigator.onLine) return;
+    try {
+      const fresh = await apiFetch(`/api/pos/catalog?location=${locationId}`);
+      await saveCatalog(tenantId, locationId, fresh);
+      setCatalog(fresh);
+    } catch {}
+  }, [tenantId, locationId]);
+
+  useEffect(() => {
+    refreshCatalog();
+  }, [refreshCatalog]);
 
   const search = useCallback(
-    async (term, { autoAdd = false } = {}) => {
+    async (term) => {
+      // Search the local catalogue first (instant, works offline).
+      if (catalogRef.current) {
+        const items = searchCatalog(catalogRef.current, term, 24);
+        setResults(items);
+        return items;
+      }
       setSearching(true);
       try {
         const res = await apiFetch(`/api/products/lookup?q=${encodeURIComponent(term)}&location=${locationId}`);
@@ -62,7 +92,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
 
   useEffect(() => {
     search(debounced);
-  }, [debounced, search]);
+  }, [debounced, search, catalog]);
 
   const addToCart = useCallback(
     (p, qty = 1) => {
@@ -115,30 +145,77 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
     setTimeout(() => searchRef.current?.focus(), 50);
   };
 
+  const [saving, setSaving] = useState(false);
+
+  const saveOffline = async (payload) => {
+    const occurredAt = new Date().toISOString();
+    const lines = cart.map((l) => ({ productId: l.id, quantity: l.quantity }));
+    const preview = {
+      invoiceNumber: `OFFLINE-${payload.clientRequestId.slice(0, 8).toUpperCase()}`,
+      createdAt: occurredAt,
+      cashierName,
+      customerName: customer?.name || "Walk-in customer",
+      subtotal: totals.subtotal,
+      discountType,
+      discountValue: Number(discountValue) || 0,
+      discount: totals.discount,
+      taxRate,
+      tax: totals.tax,
+      total: totals.total,
+      amountTendered: tenderedNum,
+      amountPaid: settlement.amountPaid,
+      balance: settlement.balance,
+      change: settlement.change,
+      paymentMethod: method,
+      status: "completed",
+    };
+    const items = cart.map((l) => ({ _id: l.id, productId: l.id, name: l.name, quantity: l.quantity, unitPrice: l.price, lineTotal: l.price * l.quantity }));
+    await queueSale({ tenantId, userId, payload: { ...payload, occurredAt }, preview: { sale: preview, items, customer } });
+    const next = await applyLocalSale(tenantId, locationId, catalogRef.current, lines);
+    if (next) setCatalog(next);
+    setReceipt({ sale: preview, items, business: catalogRef.current?.business, customer, offline: true });
+    toast.info("Saved offline", "This sale will be sent automatically when you're back online.");
+    reset();
+  };
+
   const complete = async () => {
-    if (!cart.length) return;
+    if (!cart.length || saving) return;
     if (needsCustomer) return toast.warning("Customer required", "Select a customer to record an unpaid balance.");
-    const res = await run(
-      () =>
-        apiFetch("/api/sales", {
-          method: "POST",
-          body: {
-            items: cart.map((l) => ({ productId: l.id, quantity: l.quantity })),
-            customerId: customer?._id || undefined,
-            discountType,
-            discountValue: Number(discountValue) || 0,
-            paymentMethod: method,
-            amountTendered: tenderedNum,
-            locationId: locationId || undefined,
-            clientRequestId: requestId.current,
-          },
-        }),
-      { success: "Sale completed" },
-    );
-    if (res) {
+    const payload = {
+      items: cart.map((l) => ({ productId: l.id, quantity: l.quantity })),
+      customerId: customer?._id || undefined,
+      discountType,
+      discountValue: Number(discountValue) || 0,
+      paymentMethod: method,
+      amountTendered: tenderedNum,
+      locationId: locationId || undefined,
+      clientRequestId: requestId.current,
+    };
+    setSaving(true);
+    try {
+      if (!online || !navigator.onLine) return await saveOffline(payload);
+      // Don't leave the cashier waiting on a very slow connection: after 20s keep the sale
+      // on this device instead (same clientRequestId, so it can never be recorded twice).
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20_000);
+      let res;
+      try {
+        res = await apiFetch("/api/sales", { method: "POST", body: payload, signal: ctrl.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+      toast.success("Sale completed");
+      const next = await applyLocalSale(tenantId, locationId, catalogRef.current, payload.items);
+      if (next) setCatalog(next);
       setReceipt(res);
       reset();
-      search("");
+      if (!catalogRef.current) search("");
+    } catch (err) {
+      // Connection dropped mid-request → keep the sale on this device (same clientRequestId, so no duplicates).
+      if (err?.code === "NETWORK" || err?.name === "AbortError" || [502, 503, 504].includes(err?.status)) return await saveOffline(payload);
+      toast.error(err?.code === "SUBSCRIPTION_REQUIRED" ? "Subscription required" : "Couldn't complete the sale", err?.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -281,7 +358,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
             <span>{formatMoney(settlement.balance, currency)}</span>
           </p>
         ) : null}
-        <Button size="lg" className="w-full" onClick={complete} loading={loading} disabled={!cart.length}>
+        <Button size="lg" className="w-full" onClick={complete} loading={saving} disabled={!cart.length}>
           Complete sale · {formatMoney(totals.total, currency)}
         </Button>
       </div>
@@ -291,6 +368,16 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_400px]">
       <div className="min-w-0">
+        {!online ? (
+          <div className="mb-4 flex items-start gap-3 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-white">
+            <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              <strong>You're offline.</strong> Keep selling — sales are saved on this device and sent automatically when the connection returns.
+              {catalog?.generatedAt ? <span className="block text-xs text-slate-300">Stock levels as of {new Date(catalog.generatedAt).toLocaleString("en-GB", { timeStyle: "short", dateStyle: "medium" })}.</span> : null}
+            </p>
+          </div>
+        ) : null}
+        <OfflineQueue tenantId={tenantId} userId={userId} currency={currency} online={online} onSynced={refreshCatalog} />
         <div className="mb-4 flex flex-col gap-2 sm:flex-row">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -367,7 +454,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
       ) : null}
       <div className="h-20 lg:hidden" />
 
-      {customerModal ? <CustomerPicker onClose={() => setCustomerModal(false)} onPick={(c) => { setCustomer(c); setCustomerModal(false); }} /> : null}
+      {customerModal ? <CustomerPicker online={online} offlineCustomers={catalog?.customers || []} onClose={() => setCustomerModal(false)} onPick={(c) => { setCustomer(c); setCustomerModal(false); }} /> : null}
 
       {receipt ? (
         <Modal
@@ -375,11 +462,13 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
           onClose={() => setReceipt(null)}
           title={
             <span className="flex items-center gap-2">
-              <CircleCheck className="h-5 w-5 text-emerald-500" /> Sale completed
+              {receipt.offline ? <CloudUpload className="h-5 w-5 text-amber-500" /> : <CircleCheck className="h-5 w-5 text-emerald-500" />}
+              {receipt.offline ? "Saved offline — will sync automatically" : "Sale completed"}
             </span>
           }
           footer={
             <>
+              <WhatsAppReceiptButton sale={receipt.sale} items={receipt.items} businessName={receipt.business?.businessName} currency={currency} phone={receipt.customer?.phone} />
               <Button variant="outline" icon={Printer} onClick={() => window.print()}>
                 Print receipt
               </Button>
@@ -394,7 +483,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
   );
 }
 
-function CustomerPicker({ onClose, onPick }) {
+function CustomerPicker({ onClose, onPick, online = true, offlineCustomers = [] }) {
   const [q, setQ] = useState("");
   const debounced = useDebounce(q, 250);
   const [items, setItems] = useState([]);
@@ -403,12 +492,17 @@ function CustomerPicker({ onClose, onPick }) {
   const { run, loading, errors } = useAction();
 
   useEffect(() => {
+    if (!online) {
+      const term = debounced.trim().toLowerCase();
+      setItems(offlineCustomers.filter((c) => !term || c.name.toLowerCase().includes(term) || (c.phone || "").includes(term)).slice(0, 20));
+      return undefined;
+    }
     const ctrl = new AbortController();
     apiFetch(`/api/customers/search?q=${encodeURIComponent(debounced)}`, { signal: ctrl.signal })
       .then((r) => setItems(r.items))
       .catch(() => {});
     return () => ctrl.abort();
-  }, [debounced]);
+  }, [debounced, online, offlineCustomers]);
 
   const create = async (e) => {
     e.preventDefault();
@@ -458,11 +552,89 @@ function CustomerPicker({ onClose, onPick }) {
             ))}
             {!items.length ? <li className="px-3 py-6 text-center text-sm text-slate-500">No customers found.</li> : null}
           </ul>
-          <Button variant="soft" icon={UserPlus} onClick={() => setCreating(true)} className="w-full">
-            Add new customer
-          </Button>
+          {online ? (
+            <Button variant="soft" icon={UserPlus} onClick={() => setCreating(true)} className="w-full">
+              Add new customer
+            </Button>
+          ) : (
+            <p className="text-center text-xs text-slate-500">New customers can be added when you're back online.</p>
+          )}
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Sales recorded offline on this device, with retry / discard for failed ones. */
+function OfflineQueue({ tenantId, userId, currency, online, onSynced }) {
+  const toast = useToast();
+  const [items, setItems] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(async () => setItems(tenantId ? await listOutbox(tenantId, userId) : []), [tenantId, userId]);
+  useEffect(() => {
+    load();
+    window.addEventListener(OUTBOX_EVENT, load);
+    return () => window.removeEventListener(OUTBOX_EVENT, load);
+  }, [load]);
+
+  if (!items.length) return null;
+  const syncNow = async () => {
+    setBusy(true);
+    try {
+      const r = await syncOutbox(tenantId, userId);
+      if (r.synced) {
+        toast.success(`${r.synced} sale${r.synced === 1 ? "" : "s"} synced`);
+        onSynced?.();
+      }
+      if (r.offline) toast.warning("Still offline", "We'll keep trying automatically.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const retry = async (item) => {
+    await updateOutbox({ ...item, status: "pending", error: null });
+    if (online) syncNow();
+  };
+  const discard = async (item) => {
+    if (!window.confirm(`Discard offline sale ${item.preview?.sale?.invoiceNumber}? It will not be recorded.`)) return;
+    await removeOutbox(item.id);
+    onSynced?.();
+  };
+
+  return (
+    <div id="offline-sales" className="mb-4 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+          <CloudUpload className="h-4 w-4" /> {items.length} sale{items.length === 1 ? "" : "s"} saved on this device
+        </p>
+        <Button size="sm" variant="outline" icon={RefreshCw} onClick={syncNow} loading={busy} disabled={!online}>
+          Sync now
+        </Button>
+      </div>
+      <ul className="mt-3 divide-y divide-amber-100 text-sm">
+        {items.map((i) => (
+          <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <span className="min-w-0">
+              <span className="font-medium text-slate-900">{i.preview?.sale?.invoiceNumber}</span>{" "}
+              <span className="text-slate-500">· {formatMoney(i.preview?.sale?.total || 0, currency)} · {new Date(i.createdAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>
+              {i.status === "failed" ? <span className="block text-xs text-rose-600">{i.error}</span> : null}
+            </span>
+            {i.status === "failed" ? (
+              <span className="flex gap-2">
+                <Button size="xs" variant="outline" onClick={() => retry(i)}>
+                  Retry
+                </Button>
+                <Button size="xs" variant="danger-outline" onClick={() => discard(i)}>
+                  Discard
+                </Button>
+              </span>
+            ) : (
+              <span className="text-xs font-medium text-amber-700">Waiting to sync</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

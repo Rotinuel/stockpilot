@@ -14,6 +14,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import Badge from "@/components/ui/Badge";
 import Button from "@/components/ui/Button";
 import ProductDetailActions from "@/components/products/ProductDetailActions";
+import { ProductPhotoCard } from "@/components/products/ProductPhoto";
 import AccessDenied from "@/components/layout/AccessDenied";
 
 export const metadata = { title: "Product details" };
@@ -92,12 +93,9 @@ export default async function ProductDetailPage({ params }) {
             ))}
           </ul>
         </Card>
-        {product.image ? (
-          <Card className="overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={product.image} alt={product.name} className="h-full max-h-80 w-full object-cover" />
-          </Card>
-        ) : null}
+        <Card className="overflow-hidden">
+          <ProductPhotoCard productId={String(product._id)} image={product.image || ""} name={product.name} canEdit={sessionCan(session, "products:update") && session.access.canWrite} />
+        </Card>
       </div>
 
       <Card className="mt-6">

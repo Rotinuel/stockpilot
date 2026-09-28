@@ -10,9 +10,10 @@ import { createToken, hashToken } from "../lib/auth/tokens.js";
 import { signSessionToken } from "../lib/auth/jwt.js";
 import { trialWindow } from "../lib/access.js";
 import { COUNTRIES, ROLE_LABELS } from "../lib/constants.js";
-import { ApiError, badRequest, conflict, forbidden, unauthorized } from "../lib/errors.js";
+import { ApiError, badRequest, conflict, forbidden, unauthorized, validationError } from "../lib/errors.js";
 import { sendPasswordResetEmail, sendVerificationEmail } from "../lib/email.js";
 import { slugify } from "../utils/slug.js";
+import { normalizePhone } from "../lib/phone.js";
 import { getTrialPlan } from "./plans.js";
 import { getPlatformSettings } from "./platform.js";
 import { logAudit } from "./audit.js";
@@ -55,7 +56,14 @@ export async function registerBusiness(data, request) {
   const now = new Date();
   const { trialStartedAt, trialEndsAt } = trialWindow(now);
   const country = COUNTRIES.find((c) => c.code === data.country || c.name === data.country) || COUNTRIES[0];
-  const passwordHash = await hashPassword(data.password);
+  // The phone number doubles as the business WhatsApp number for alerts.
+  const phoneE164 = normalizePhone(data.phone, country.code);
+  if (!phoneE164) throw validationError({ phone: "Enter a valid phone number, e.g. 0803 123 4567" });
+  const whatsappOptIn = data.whatsappOptIn !== false;
+  // Password sign-up hashes the password; Google sign-up has a verified email and no password.
+  const google = data.google || null;
+  const passwordHash = data.password ? await hashPassword(data.password) : undefined;
+  if (!passwordHash && !google?.sub) throw badRequest("A password is required.");
   const verification = createToken();
 
   const userId = new mongoose.Types.ObjectId();
@@ -73,7 +81,9 @@ export async function registerBusiness(data, request) {
             slug,
             ownerId: userId,
             email,
-            phone: data.phone,
+            phone: phoneE164,
+            whatsappNumber: phoneE164,
+            settings: { whatsappNotifications: whatsappOptIn },
             country: country.code,
             currency: country.currency,
             businessType: data.businessType,
@@ -95,21 +105,23 @@ export async function registerBusiness(data, request) {
             _id: userId,
             name: data.ownerName,
             email,
-            phone: data.phone,
+            phone: phoneE164,
             password: passwordHash,
+            googleId: google?.sub,
+            authProviders: google ? ["google"] : ["password"],
+            avatar: google?.picture || "",
             role: "owner",
             tenantId,
             isActive: true,
-            emailVerified: false,
-            emailVerificationTokenHash: verification.hash,
-            emailVerificationExpires: new Date(now.getTime() + 48 * 3600 * 1000),
+            emailVerified: Boolean(google),
+            ...(google ? {} : { emailVerificationTokenHash: verification.hash, emailVerificationExpires: new Date(now.getTime() + 48 * 3600 * 1000) }),
           },
         ],
         opts,
       );
       comp.add(() => User.deleteOne({ _id: userId }));
 
-      const [location] = await Location.create([{ tenantId, name: "Main Store", isDefault: true, isActive: true, phone: data.phone }], opts);
+      const [location] = await Location.create([{ tenantId, name: "Main Store", isDefault: true, isActive: true, phone: phoneE164 }], opts);
       comp.add(() => Location.deleteOne({ _id: location._id }));
       await User.updateOne({ _id: userId }, { $set: { defaultLocationId: location._id } }, opts);
 
@@ -141,8 +153,8 @@ export async function registerBusiness(data, request) {
 
   const user = await User.findById(userId).lean();
   const tenant = await Tenant.findById(tenantId).lean();
-  await sendVerificationEmail(user, verification.token);
-  await logAudit({ tenantId, userId, userName: user.name, role: "owner" }, "auth.register", { entity: "Tenant", entityId: tenantId, metadata: { businessName: tenant.businessName }, request });
+  if (!google) await sendVerificationEmail(user, verification.token);
+  await logAudit({ tenantId, userId, userName: user.name, role: "owner" }, "auth.register", { entity: "Tenant", entityId: tenantId, metadata: { businessName: tenant.businessName, provider: google ? "google" : "password" }, request });
   await notify({
     tenantId,
     type: "trial_ending",
@@ -151,6 +163,7 @@ export async function registerBusiness(data, request) {
     message: "Add your products, record sales and explore every feature. No payment is required during your trial.",
     link: "/billing",
     dedupeKey: `welcome:${tenantId}`,
+    whatsapp: whatsappOptIn,
   });
   return { user, tenant, token: await issueSessionToken(user) };
 }
@@ -165,6 +178,9 @@ export async function login({ email, password }, request) {
   }
   if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
     throw new ApiError(423, "Too many failed attempts. Your account is locked for a few minutes — try again later or reset your password.", "ACCOUNT_LOCKED");
+  }
+  if (!user.password) {
+    throw new ApiError(400, "This account signs in with Google. Use “Continue with Google”, or reset your password to add one.", "USE_GOOGLE");
   }
   const ok = await verifyPassword(password, user.password);
   if (!ok) {
@@ -202,6 +218,7 @@ export async function resetPassword({ token, password }, request) {
     { _id: user._id },
     {
       $set: { password: await hashPassword(password), emailVerified: true, failedLoginAttempts: 0 },
+      $addToSet: { authProviders: "password" },
       $unset: { passwordResetTokenHash: 1, passwordResetExpires: 1, lockedUntil: 1 },
       $inc: { tokenVersion: 1 }, // sign out all existing sessions
     },
@@ -281,8 +298,15 @@ export async function acceptInvitation({ token, name, phone, password }, request
 export async function changePassword(userId, { currentPassword, newPassword }, request) {
   const user = await User.findById(userId).select("+password").lean();
   if (!user) throw unauthorized();
-  if (!(await verifyPassword(currentPassword, user.password))) throw badRequest("Your current password is incorrect.", { currentPassword: "Incorrect password" });
-  const updated = await User.findByIdAndUpdate(user._id, { $set: { password: await hashPassword(newPassword) }, $inc: { tokenVersion: 1 } }, { new: true }).lean();
+  // Google-only accounts have no password yet: they can set one without a current password.
+  if (user.password && !(await verifyPassword(currentPassword || "", user.password))) {
+    throw badRequest("Your current password is incorrect.", { currentPassword: "Incorrect password" });
+  }
+  const updated = await User.findByIdAndUpdate(
+    user._id,
+    { $set: { password: await hashPassword(newPassword) }, $addToSet: { authProviders: "password" }, $inc: { tokenVersion: 1 } },
+    { new: true },
+  ).lean();
   await logAudit({ tenantId: user.tenantId, userId: user._id, userName: user.name, role: user.role }, "auth.password_change", { entity: "User", entityId: user._id, request });
   return { token: await issueSessionToken(updated) };
 }
@@ -290,4 +314,40 @@ export async function changePassword(userId, { currentPassword, newPassword }, r
 export async function logoutEverywhere(userId) {
   const updated = await User.findByIdAndUpdate(userId, { $inc: { tokenVersion: 1 } }, { new: true }).lean();
   return { token: await issueSessionToken(updated) };
+}
+
+/**
+ * Sign in with a VERIFIED Google identity ({sub, email, email_verified, name, picture}).
+ * Returns { status: "signed_in", user, token } or { status: "needs_signup" } for new people.
+ * Existing email/password accounts are linked automatically (Google has verified the email).
+ */
+export async function signInWithGoogle(identity, request) {
+  await connectDB();
+  if (!identity?.sub || !identity.email || identity.email_verified !== true) {
+    throw badRequest("Your Google account email is not verified.");
+  }
+  const email = identity.email.toLowerCase();
+  let user = await User.findOne({ googleId: identity.sub }).select("+googleId").lean();
+  if (!user) user = await User.findOne({ email }).select("+googleId").lean();
+  if (!user) return { status: "needs_signup" };
+
+  if (user.role === "super_admin") {
+    throw forbidden("Platform administrators must sign in with email and password.", "USE_PASSWORD");
+  }
+  if (user.googleId && user.googleId !== identity.sub) {
+    throw forbidden("This email is linked to a different Google account.", "GOOGLE_MISMATCH");
+  }
+  if (!user.isActive) throw forbidden("Your account has been deactivated. Contact your business owner.", "ACCOUNT_DISABLED");
+
+  const $set = { lastLoginAt: new Date(), failedLoginAttempts: 0, emailVerified: true };
+  if (!user.googleId) $set.googleId = identity.sub;
+  if (!user.avatar && identity.picture) $set.avatar = identity.picture;
+  await User.updateOne({ _id: user._id }, { $set, $addToSet: { authProviders: "google" }, $unset: { lockedUntil: 1, emailVerificationTokenHash: 1, emailVerificationExpires: 1 } });
+  await logAudit({ tenantId: user.tenantId, userId: user._id, userName: user.name, role: user.role }, "auth.login", {
+    entity: "User",
+    entityId: user._id,
+    metadata: { provider: "google", linked: !user.googleId },
+    request,
+  });
+  return { status: "signed_in", user, token: await issueSessionToken(user) };
 }

@@ -11,6 +11,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import Badge, { STATUS_TONES } from "@/components/ui/Badge";
 import Receipt from "@/components/sales/Receipt";
 import { PrintButton, CancelSaleButton } from "@/components/sales/SaleActions";
+import WhatsAppReceiptButton from "@/components/sales/WhatsAppReceiptButton";
 import AccessDenied from "@/components/layout/AccessDenied";
 
 export const metadata = { title: "Sale" };
@@ -38,6 +39,7 @@ export default async function SaleDetailPage({ params }) {
         description={formatDateTime(sale.createdAt, { timeZone: ctx.timezone })}
         actions={
           <>
+            <WhatsAppReceiptButton sale={sale} items={items} businessName={business?.businessName} currency={ctx.currency} phone={customer?.phone} />
             <PrintButton />
             {sessionCan(session, "sales:cancel") && sale.status === "completed" ? <CancelSaleButton saleId={sale._id} invoiceNumber={sale.invoiceNumber} disabled={!session.access.canWrite} /> : null}
           </>

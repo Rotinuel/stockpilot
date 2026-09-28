@@ -1,5 +1,6 @@
 import "./globals.css";
 import Providers from "@/components/providers";
+import ServiceWorkerRegister from "@/components/offline/ServiceWorkerRegister";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
@@ -42,6 +43,7 @@ export default function RootLayout({ children }) {
     <html lang="en">
       <body className="min-h-screen font-sans">
         <Providers>{children}</Providers>
+        <ServiceWorkerRegister />
       </body>
     </html>
   );

@@ -42,6 +42,7 @@ export async function sendTrialReminders(now = new Date()) {
       link: "/billing",
       dedupeKey: `${key}:${t._id}`,
       email: true,
+      whatsapp: true,
     });
     // Mark this and all earlier (larger) reminders as sent.
     const marks = [1, 3, 5].filter((m) => m >= mark).map((m) => `trial-${m}`);
@@ -67,6 +68,7 @@ export async function expireTrials(now = new Date()) {
       link: "/billing",
       dedupeKey: `trial-expired:${t._id}`,
       email: true,
+      whatsapp: true,
     });
     await logAudit(system(t._id), "subscription.trial_expired", { entity: "Tenant", entityId: t._id });
   }
@@ -97,6 +99,7 @@ export async function processSubscriptionExpiry(now = new Date()) {
       link: "/billing",
       dedupeKey: `overdue:${t._id}:${new Date(t.subscriptionEndDate).toISOString().slice(0, 10)}`,
       email: true,
+      whatsapp: true,
     });
     result.pastDue++;
   }
@@ -116,6 +119,7 @@ export async function processSubscriptionExpiry(now = new Date()) {
       link: "/billing",
       dedupeKey: `graceover:${t._id}:${now.toISOString().slice(0, 10)}`,
       email: true,
+      whatsapp: true,
     });
     await logAudit(system(t._id), "subscription.suspended_for_nonpayment", { entity: "Tenant", entityId: t._id });
     result.expired++;
@@ -197,6 +201,7 @@ export async function lowStockDigest(now = new Date()) {
       link: "/inventory/low-stock",
       dedupeKey: `lowdigest:${t._id}:${today.toISOString().slice(0, 10)}`,
       email: true,
+      whatsapp: true,
     });
     notified++;
   }

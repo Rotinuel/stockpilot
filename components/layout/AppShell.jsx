@@ -7,6 +7,9 @@ import { Menu, X, LogOut, Settings, CreditCard, UserRound, Lock, Sparkles } from
 import { NAV_SECTIONS } from "./nav";
 import { LogoMark } from "./Logo";
 import NotificationBell from "./NotificationBell";
+import OfflineManager from "@/components/offline/OfflineManager";
+import { useConfirm } from "@/components/ui/Confirm";
+import { clearOfflineData, listOutbox } from "@/lib/offline/store";
 import Dropdown, { DropdownItem, DropdownSeparator } from "@/components/ui/Dropdown";
 import { Avatar } from "@/components/ui/Misc";
 import { cn } from "@/utils/cn";
@@ -89,9 +92,21 @@ export default function AppShell({ session, permissions, badges, children }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  const confirm = useConfirm();
   useEffect(() => setOpen(false), [pathname]);
 
   const logout = async () => {
+    const unsynced = (await listOutbox(session.tenant.id, session.user.id)).length;
+    if (unsynced) {
+      const ok = await confirm({
+        title: "Unsynced offline sales",
+        message: `${unsynced} sale${unsynced === 1 ? " hasn't" : "s haven't"} been sent to the server yet. Signing out now will delete ${unsynced === 1 ? "it" : "them"} from this device. Connect to the internet first to sync.`,
+        confirmLabel: "Sign out anyway",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    await clearOfflineData();
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
     } finally {
@@ -141,6 +156,7 @@ export default function AppShell({ session, permissions, badges, children }) {
               {access.state === "trialing" ? `Trial: ${access.daysLeft} day${access.daysLeft === 1 ? "" : "s"} left` : access.state === "cancelled" ? "Cancelled" : access.state === "past_due" ? "Payment due" : "Subscription inactive"}
             </Link>
           ) : null}
+          <OfflineManager tenantId={session.tenant.id} userId={session.user.id} canPos={permissions.includes("pos:use") && Boolean(session.access?.canWrite)} />
           <NotificationBell />
           <Dropdown
             trigger={
