@@ -40,8 +40,11 @@ export const viewport = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen font-sans">
+    // suppressHydrationWarning: browser extensions (Grammarly, password managers, translators, dark-mode
+    // tools…) add attributes to <html>/<body> before React loads. This only ignores attribute
+    // differences on these two tags — mismatches anywhere inside the app are still reported.
+    <html lang="en" suppressHydrationWarning>
+      <body className="min-h-screen font-sans" suppressHydrationWarning>
         <Providers>{children}</Providers>
         <ServiceWorkerRegister />
       </body>

@@ -422,6 +422,7 @@ export async function posCatalog(ctx, locationId) {
         receiptHeader: tenant?.settings?.receiptHeader,
         receiptFooter: tenant?.settings?.receiptFooter,
         showLogoOnReceipt: tenant?.settings?.showLogoOnReceipt,
+        receiptPaper: tenant?.settings?.receiptPaper || "80mm",
       },
     },
     products: items.map((p) => ({

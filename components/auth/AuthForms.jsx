@@ -85,13 +85,13 @@ export function LoginForm({ next }) {
   );
 }
 
-export function RegisterForm() {
+export function RegisterForm({ referralCode = "" }) {
   const router = useRouter();
   const f = useForm({ businessName: "", ownerName: "", email: "", phone: "", password: "", country: "NG", businessType: "", whatsappOptIn: true });
   const onSubmit = (e) => {
     e.preventDefault();
     f.submit(async (v) => {
-      const res = await apiFetch("/api/auth/register", { method: "POST", body: v });
+      const res = await apiFetch("/api/auth/register", { method: "POST", body: { ...v, referralCode: referralCode || undefined } });
       router.replace(res.redirect || "/onboarding");
       router.refresh();
     });
@@ -268,13 +268,13 @@ function SuccessBox({ message, action }) {
   );
 }
 
-export function GoogleSignupForm({ name, email }) {
+export function GoogleSignupForm({ name, email, referralCode = "" }) {
   const router = useRouter();
   const f = useForm({ ownerName: name || "", businessName: "", phone: "", country: "NG", businessType: "", whatsappOptIn: true });
   const onSubmit = (e) => {
     e.preventDefault();
     f.submit(async (v) => {
-      const res = await apiFetch("/api/auth/google/complete", { method: "POST", body: v });
+      const res = await apiFetch("/api/auth/google/complete", { method: "POST", body: { ...v, referralCode: referralCode || undefined } });
       router.replace(res.redirect || "/onboarding");
       router.refresh();
     });

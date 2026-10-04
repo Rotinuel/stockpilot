@@ -5,6 +5,7 @@
 import { NextResponse } from "next/server";
 import { verifySessionToken } from "./lib/auth/jwt.js";
 import { SESSION_COOKIE } from "./lib/constants.js";
+import { REFERRAL_COOKIE, REFERRAL_COOKIE_DAYS, normalizeReferralCode } from "./lib/referrals.js";
 
 // Signed-in users are sent to their dashboard from these pages. /login stays
 // reachable so you can switch accounts (e.g. between demo roles).
@@ -24,6 +25,7 @@ const APP_PREFIXES = [
   "/staff",
   "/locations",
   "/billing",
+  "/referrals",
   "/settings",
   "/notifications",
   "/audit-logs",
@@ -61,6 +63,17 @@ export async function proxy(request) {
 
   const res = NextResponse.next();
   if (isAppArea || isSuperArea) res.headers.set("Cache-Control", "private, no-store");
+  // Remember a referral link (?ref=CODE) for 30 days so it still counts if the visitor signs up later.
+  const ref = !session ? normalizeReferralCode(request.nextUrl.searchParams.get("ref")) : null;
+  if (ref) {
+    res.cookies.set(REFERRAL_COOKIE, ref, {
+      path: "/",
+      maxAge: REFERRAL_COOKIE_DAYS * 24 * 3600,
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+  }
   return res;
 }
 

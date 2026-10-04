@@ -16,6 +16,7 @@ import { getEffectivePlan } from "./plans.js";
 import { logAudit } from "./audit.js";
 import { verifyAndApply, syncSubscriptionFromPaystack, applyScheduledPlanChange } from "./billing.js";
 import { isPaystackConfigured } from "../lib/paystack.js";
+import { applyAllPendingCredits } from "./referrals.js";
 
 const BATCH = 200;
 const system = (tenantId) => ({ tenantId, userName: "System", role: "system" });
@@ -215,6 +216,7 @@ export const CRON_TASKS = {
   payments: reconcilePendingPayments,
   "sync-subscriptions": syncSubscriptions,
   "low-stock": lowStockDigest,
+  "referral-credits": applyAllPendingCredits,
 };
 
 export async function runCron(task = "all") {

@@ -114,6 +114,7 @@ export function InvoiceSettingsForm({ settings }) {
     receiptHeader: settings.receiptHeader || "",
     receiptFooter: settings.receiptFooter || "",
     showLogoOnReceipt: settings.showLogoOnReceipt !== false,
+    receiptPaper: settings.receiptPaper || "80mm",
   });
   const { run, loading, errors } = useAction();
   const set = (k) => (e) => setV((s) => ({ ...s, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
@@ -144,7 +145,14 @@ export function InvoiceSettingsForm({ settings }) {
           <Field label="Receipt footer" className="sm:col-span-2">
             <Input value={v.receiptFooter} onChange={set("receiptFooter")} />
           </Field>
-          <Checkbox className="sm:col-span-2" checked={v.showLogoOnReceipt} onChange={set("showLogoOnReceipt")} label="Show logo on receipts" />
+          <Field label="Receipt printer paper" hint="Match the paper in your receipt printer." error={errors["settings.receiptPaper"]}>
+            <Select value={v.receiptPaper} onChange={set("receiptPaper")}>
+              <option value="80mm">80mm thermal roll (most POS printers)</option>
+              <option value="58mm">58mm thermal roll (small / mobile printers)</option>
+              <option value="a4">A4 / Letter (office printer)</option>
+            </Select>
+          </Field>
+          <Checkbox className="self-end pb-2" checked={v.showLogoOnReceipt} onChange={set("showLogoOnReceipt")} label="Show logo on receipts" />
         </CardBody>
         <SaveBar loading={loading} />
       </form>

@@ -91,6 +91,7 @@ async function wipeDemoTenants() {
   for (const Model of Object.values(M)) {
     if (Model.schema.path("tenantId")) await Model.deleteMany({ tenantId: { $in: ids } });
   }
+  await M.Referral.deleteMany({ $or: [{ referrerTenantId: { $in: ids } }, { referredTenantId: { $in: ids } }] });
   await M.Tenant.deleteMany({ _id: { $in: ids } });
   console.log(`✓ Removed ${ids.length} existing demo tenant(s)`);
 }
@@ -129,6 +130,7 @@ async function createDemoSupermarket(plans, passwordHash) {
       email: "demo@stockpilot.ng",
       phone: "+2348030000001",
       whatsappNumber: "+2348030000001",
+      referralCode: "MAMADEMO",
       address: "24 Bode Thomas Street, Surulere, Lagos",
       country: "NG",
       currency: "NGN",
@@ -513,6 +515,17 @@ async function createTrialShop(plans, passwordHash) {
   console.log(`✓ Demo tenant "Chuks Provision Store" (free trial, ends ${trialEndsAt.toDateString()}) — trial@stockpilot.ng / ${DEMO_PASSWORD}`);
 }
 
+/** The trial shop "signed up" with the supermarket's referral link (shows on Refer & earn). */
+async function linkDemoReferral() {
+  const [demo, trial] = await Promise.all(DEMO_SLUGS.slice(0, 2).map((slug) => M.Tenant.findOne({ slug }).select("_id referralCode createdAt").lean()));
+  if (!demo || !trial) return;
+  if (!demo.referralCode) await M.Tenant.updateOne({ _id: demo._id }, { $set: { referralCode: "MAMADEMO" } });
+  if (await M.Referral.exists({ referredTenantId: trial._id })) return;
+  await M.Referral.create({ referrerTenantId: demo._id, referredTenantId: trial._id, code: demo.referralCode || "MAMADEMO", status: "signed_up", signedUpAt: trial.createdAt });
+  await M.Tenant.updateOne({ _id: trial._id }, { $set: { referredBy: demo._id } });
+  console.log("✓ Demo referral: Chuks Provision Store joined with Mama Nkechi's link (code MAMADEMO)");
+}
+
 /**
  * Make sure every demo login works: re-creates a missing trial owner (e.g. after an
  * interrupted seed), resets demo passwords to Demo@12345 and clears lockouts.
@@ -559,6 +572,7 @@ async function main() {
     }
   }
   await repairDemoLogins(passwordHash);
+  await linkDemoReferral();
   console.log("Done.");
 }
 

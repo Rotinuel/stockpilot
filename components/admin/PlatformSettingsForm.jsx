@@ -15,11 +15,20 @@ export default function PlatformSettingsForm({ settings }) {
     supportPhone: settings.supportPhone || "",
     defaultCurrency: settings.defaultCurrency || "NGN",
     announcement: { active: Boolean(settings.announcement?.active), message: settings.announcement?.message || "", level: settings.announcement?.level || "info" },
+    referral: {
+      enabled: settings.referral?.enabled !== false,
+      rewardType: settings.referral?.rewardType || "both",
+      rewardDays: String(settings.referral?.rewardDays ?? 30),
+      commissionPercent: String(settings.referral?.commissionPercent ?? 10),
+    },
   });
+  const setRef = (k, val) => setV((s) => ({ ...s, referral: { ...s.referral, [k]: val } }));
+  const showDays = v.referral.rewardType !== "commission";
+  const showCommission = v.referral.rewardType !== "days";
   const { run, loading, errors } = useAction();
   const submit = (e) => {
     e.preventDefault();
-    run(() => apiFetch("/api/admin/settings", { method: "PATCH", body: { ...v, gracePeriodDays: Number(v.gracePeriodDays) } }), { success: "Settings saved", refresh: true });
+    run(() => apiFetch("/api/admin/settings", { method: "PATCH", body: { ...v, gracePeriodDays: Number(v.gracePeriodDays), referral: { ...v.referral, rewardDays: Number(v.referral.rewardDays) || 0, commissionPercent: Number(v.referral.commissionPercent) || 0 } } }), { success: "Settings saved", refresh: true });
   };
   return (
     <form onSubmit={submit} className="max-w-3xl space-y-6">
@@ -34,6 +43,29 @@ export default function PlatformSettingsForm({ settings }) {
           </Field>
           <Checkbox className="sm:col-span-2" checked={v.allowRegistrations} onChange={(e) => setV({ ...v, allowRegistrations: e.target.checked })} label="Allow new registrations" description="Turn off to pause sign-ups (existing businesses are unaffected)." />
           <p className="text-xs text-slate-500 sm:col-span-2">The free trial is fixed at exactly 7 days by business rule.</p>
+        </CardBody>
+      </Card>
+      <Card>
+        <CardHeader title="Referral programme" description="Reward businesses that bring in new paying customers. Rewards are given once, when the referred business makes its first payment." />
+        <CardBody className="grid gap-4 sm:grid-cols-3">
+          <Checkbox className="sm:col-span-3" checked={v.referral.enabled} onChange={(e) => setRef("enabled", e.target.checked)} label="Referral programme is on" description="When off, new sign-ups through referral links aren't recorded (existing ones still earn their reward)." />
+          <Field label="Reward">
+            <Select value={v.referral.rewardType} onChange={(e) => setRef("rewardType", e.target.value)}>
+              <option value="days">Free subscription days</option>
+              <option value="commission">Cash commission</option>
+              <option value="both">Free days + cash commission</option>
+            </Select>
+          </Field>
+          {showDays ? (
+            <Field label="Free days per paying referral" error={errors["referral.rewardDays"]}>
+              <Input type="number" min="0" max="365" value={v.referral.rewardDays} onChange={(e) => setRef("rewardDays", e.target.value)} />
+            </Field>
+          ) : null}
+          {showCommission ? (
+            <Field label="Commission (% of first payment)" hint="Paid out manually from Referrals." error={errors["referral.commissionPercent"]}>
+              <Input type="number" min="0" max="100" step="0.5" value={v.referral.commissionPercent} onChange={(e) => setRef("commissionPercent", e.target.value)} />
+            </Field>
+          ) : null}
         </CardBody>
       </Card>
       <Card>

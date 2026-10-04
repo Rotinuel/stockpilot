@@ -4,11 +4,14 @@ import { GoogleSignupForm } from "@/components/auth/AuthForms";
 import { GoogleIcon } from "@/components/auth/GoogleButton";
 import { verifyPurposeToken } from "@/lib/auth/jwt";
 import { GOOGLE_SIGNUP_COOKIE } from "@/lib/auth/google";
+import ReferralNotice from "@/components/auth/ReferralNotice";
+import { signupReferral } from "@/lib/referral-signup";
 
 export const metadata = { title: "Finish signing up", robots: { index: false } };
 
 export default async function GoogleSignupPage() {
   const store = await cookies();
+  const referral = await signupReferral(null);
   const pending = await verifyPurposeToken(store.get(GOOGLE_SIGNUP_COOKIE)?.value, "google_signup");
   if (!pending) {
     return (
@@ -28,7 +31,8 @@ export default async function GoogleSignupPage() {
       </div>
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tell us about your business</h1>
       <p className="mt-1 mb-8 text-sm text-slate-500">One last step to create your workspace and start your 7-day free trial.</p>
-      <GoogleSignupForm name={pending.name} email={pending.email} />
+      <ReferralNotice businessName={referral?.businessName} />
+      <GoogleSignupForm name={pending.name} email={pending.email} referralCode={referral?.code || ""} />
     </>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, Building2, Users, Repeat, CreditCard, Layers, History, Settings, Menu, X, LogOut, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, Building2, Users, Repeat, CreditCard, Layers, History, Settings, Menu, X, LogOut, ShieldCheck, Gift } from "lucide-react";
 import { LogoMark } from "@/components/layout/Logo";
 import { apiFetch } from "@/hooks/useApi";
 import { clearOfflineData } from "@/lib/offline/store";
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/super-admin/subscriptions", label: "Subscriptions", icon: Repeat },
   { href: "/super-admin/payments", label: "Payments", icon: CreditCard },
   { href: "/super-admin/plans", label: "Plans & pricing", icon: Layers },
+  { href: "/super-admin/referrals", label: "Referrals", icon: Gift },
   { href: "/super-admin/audit-logs", label: "Audit logs", icon: History },
   { href: "/super-admin/settings", label: "Global settings", icon: Settings },
 ];

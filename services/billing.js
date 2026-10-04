@@ -22,6 +22,7 @@ import { getPlatformSettings } from "./platform.js";
 import { getUsage } from "./limits.js";
 import { logAudit } from "./audit.js";
 import { notify } from "./notifications.js";
+import { rewardReferralForPayment, applyPendingReferralCredit } from "./referrals.js";
 
 const MONTHS = { monthly: 1, quarterly: 3, biannually: 6, annually: 12 };
 
@@ -311,6 +312,8 @@ async function applySuccessfulPayment(payment, tx, via) {
     email: true,
     whatsapp: true,
   });
+  // Referral programme: reward whoever referred this business (first payment only).
+  await rewardReferralForPayment(marked);
   return { alreadyProcessed: false, plan: plan.code, periodEnd: end };
 }
 
@@ -508,6 +511,8 @@ async function handleSubscriptionCreate(data) {
     );
   }
   await logAudit({ tenantId: tenant._id, userName: "Paystack", role: "system" }, "subscription.created", { entity: "Tenant", entityId: tenant._id, metadata: { code: data.subscription_code, plan: plan?.code } });
+  // Free days earned from referrals while the account was lapsed are added now.
+  if (matchesCurrent) await applyPendingReferralCredit(tenant._id).catch((err) => console.warn("[billing] referral credit", err?.message));
   return { ok: true };
 }
 
@@ -515,6 +520,7 @@ async function handleSubscriptionDisable(data, event) {
   const tenant = await findTenantForPaystack(data);
   if (!tenant) return { ignored: "tenant_not_found" };
   if (tenant.paystackSubscriptionCode !== data.subscription_code) return { ignored: "not_current_subscription" };
+  if (tenant.paystackRescheduledFrom === data.subscription_code) return { ignored: "rescheduled" }; // we moved the renewal date
   if (tenant.pendingPlanChange?.planId) return { ignored: "scheduled_change" }; // we disabled it for a downgrade
   if (!["active", "past_due"].includes(tenant.subscriptionStatus)) return { ignored: "not_active" };
   await Tenant.updateOne({ _id: tenant._id }, { $set: { subscriptionStatus: "cancelled", cancelAtPeriodEnd: true, cancelledAt: new Date() } });
@@ -626,7 +632,7 @@ export async function syncSubscriptionFromPaystack(tenant) {
   const sub = await paystack.fetchSubscription(tenant.paystackSubscriptionCode);
   const $set = {};
   if (sub.next_payment_date) $set.nextBillingDate = new Date(sub.next_payment_date);
-  if (["non-renewing", "cancelled", "complete"].includes(sub.status) && tenant.subscriptionStatus === "active" && !tenant.pendingPlanChange?.planId) {
+  if (["non-renewing", "cancelled", "complete"].includes(sub.status) && tenant.subscriptionStatus === "active" && !tenant.pendingPlanChange?.planId && tenant.paystackRescheduledFrom !== tenant.paystackSubscriptionCode) {
     $set.subscriptionStatus = "cancelled";
     $set.cancelAtPeriodEnd = true;
   }

@@ -57,6 +57,8 @@ const TenantSchema = new Schema(
       receiptHeader: { type: String, default: "" },
       receiptFooter: { type: String, default: "Thank you for your patronage!" },
       showLogoOnReceipt: { type: Boolean, default: true },
+      // Printer paper for receipts: thermal 80mm / 58mm rolls, or a normal A4 printer.
+      receiptPaper: { type: String, enum: ["80mm", "58mm", "a4"], default: "80mm" },
       lowStockNotifications: { type: Boolean, default: true },
       emailNotifications: { type: Boolean, default: true },
       whatsappNotifications: { type: Boolean, default: true },
@@ -69,6 +71,19 @@ const TenantSchema = new Schema(
       completedAt: Date,
     },
 
+    // Referral programme
+    referralCode: { type: String, trim: true, uppercase: true },
+    referredBy: { type: ObjectId, ref: "Tenant", default: null },
+    referralCreditDays: { type: Number, default: 0, min: 0 }, // free days waiting for the next paid period
+    referralPayout: {
+      bankName: { type: String, trim: true, default: "" },
+      accountNumber: { type: String, trim: true, default: "" },
+      accountName: { type: String, trim: true, default: "" },
+    },
+    // Old Paystack subscription we disabled ourselves (e.g. to move the next charge date);
+    // its "subscription.disable" webhook must not be treated as a cancellation.
+    paystackRescheduledFrom: { type: String, default: "" },
+
     remindersSent: { type: [String], default: [] },
     lastLowStockAlertAt: Date,
   },
@@ -80,5 +95,7 @@ TenantSchema.index({ subscriptionStatus: 1, trialEndsAt: 1 });
 TenantSchema.index({ subscriptionStatus: 1, subscriptionEndDate: 1 });
 TenantSchema.index({ createdAt: -1 });
 TenantSchema.index({ businessName: 1 });
+TenantSchema.index({ referralCode: 1 }, { unique: true, partialFilterExpression: { referralCode: { $type: "string" } } });
+TenantSchema.index({ referredBy: 1 }, { sparse: true });
 
 export default defineModel("Tenant", TenantSchema);

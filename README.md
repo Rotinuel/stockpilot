@@ -183,6 +183,19 @@ Offline mode works in both `bun run dev` and production builds (in dev, code is 
 
 What needs a connection: signing in for the first time on a device, adding or editing products, purchases, payments, reports and billing. Products, customers and stock levels shown offline are as of the last sync.
 
+## Referral programme
+
+Every business gets a personal link on **Refer & earn** (owners and admins), e.g. `https://your-domain.com/register?ref=MAMA7K2Q`, with buttons to copy it or share it on WhatsApp.
+
+- Anyone who opens a `?ref=` link is remembered for 30 days (a cookie), so it still counts if they sign up later — with email/password or Google. The sign-up page shows "You were invited by …".
+- A business can only be referred once, and self-referrals (same owner email or phone as the referrer) are ignored.
+- When the referred business makes its **first successful payment**, the referrer is rewarded once, using the settings in **Super Admin → Global settings → Referral programme**:
+  - **Free days** (default 30): added to the referrer's trial, or to their paid plan. For card subscriptions the Paystack subscription is moved so the next charge is pushed back by the same number of days. If the referrer's account has lapsed, the days are kept and added when they pay again.
+  - **Cash commission** (default 10% of the first payment): recorded as *owed*. Referrers add their bank details on Refer & earn; pay them by bank transfer and click **Mark paid** in **Super Admin → Referrals** (they're notified).
+  - Or **both** (the default).
+- Super admins can **void** a suspicious referral (unpaid commission is cancelled; free days already given are not taken back), or switch the programme off.
+- Demo data: the trial shop "Chuks Provision Store" joined with Mama Nkechi Supermarket's code `MAMADEMO`. Log in as the trial shop, subscribe with Paystack's test card, and the supermarket earns its reward.
+
 ## Paystack setup
 
 1. Create a Paystack account → **Settings → API Keys & Webhooks**.
@@ -228,7 +241,7 @@ bun run start             # start the production server
 bun run seed              # seed plans, settings, super admin, demo data
 bun run seed:reset        # recreate the demo businesses
 bun run create-super-admin -- admin@you.com "StrongPassw0rd" "Your Name"
-bun run cron [task]       # run scheduled jobs once (all | trial-reminders | expire-trials | subscriptions | payments | sync-subscriptions | low-stock)
+bun run cron [task]       # run scheduled jobs once (all | trial-reminders | expire-trials | subscriptions | payments | sync-subscriptions | low-stock | referral-credits)
 bun run check             # guard rails: JS only, proxy.js present, no middleware.js, no secrets in client code
 bun test                  # = bun run test (unit tests, no database needed)
 bun run test:integration  # needs MONGODB_URI_TEST (database is dropped!)
@@ -360,6 +373,7 @@ Handled events: `charge.success` (first payment, upgrades, **renewals**), `subsc
 | `payments` | Re-verifies pending Paystack payments older than 15 min; abandons ones older than 3 days |
 | `sync-subscriptions` | Pulls subscription status/next payment date from Paystack |
 | `low-stock` | Daily low-stock digest for plans with low-stock alerts |
+| `referral-credits` | Adds referral free days that were waiting for a lapsed business once it's active again |
 
 Trigger options (all require `CRON_SECRET`):
 

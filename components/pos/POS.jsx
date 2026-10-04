@@ -219,9 +219,11 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
     }
   };
 
+  // Layout: header · scrollable middle (customer, items, discount, payment) · pinned footer
+  // with the change/credit summary and the Complete button, so the button never scrolls away.
   const cartPanel = (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <ShoppingCart className="h-4 w-4" /> Cart <span className="text-slate-400">({cart.length})</span>
         </h2>
@@ -232,6 +234,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
         ) : null}
       </div>
 
+      <div className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overscroll-contain">
       <div className="border-b border-slate-100 px-4 py-3">
         {customer ? (
           <div className="flex items-center justify-between rounded-lg bg-brand-50 px-3 py-2 text-sm">
@@ -251,7 +254,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
         )}
       </div>
 
-      <ul className="scrollbar-thin min-h-24 flex-1 divide-y divide-slate-100 overflow-y-auto">
+      <ul className="divide-y divide-slate-100">
         {cart.length ? (
           cart.map((l) => (
             <li key={l.id} className="px-4 py-3">
@@ -344,18 +347,36 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
           ))}
         </div>
         <Field label="Amount received" hint={allowCredit ? "Less than the total records a balance on the customer's account." : undefined}>
-          <Input type="number" min="0" step="any" inputMode="decimal" placeholder={String(totals.total)} value={tendered} onChange={(e) => setTendered(e.target.value)} />
+          <Input
+            type="number"
+            min="0"
+            step="any"
+            inputMode="decimal"
+            placeholder={String(totals.total)}
+            value={tendered}
+            onChange={(e) => setTendered(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                complete();
+              }
+            }}
+          />
         </Field>
+      </div>
+      </div>
+
+      <div className="shrink-0 space-y-2 border-t border-slate-200 bg-white px-4 py-3 shadow-[0_-4px_12px_-8px_rgba(15,23,42,0.15)]">
         {settlement.change > 0 ? (
           <p className="flex justify-between rounded-lg bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800">
             <span>Change</span>
-            <span>{formatMoney(settlement.change, currency)}</span>
+            <span className="tabular-nums">{formatMoney(settlement.change, currency)}</span>
           </p>
         ) : null}
         {settlement.balance > 0 ? (
           <p className="flex justify-between rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
             <span>Balance on credit</span>
-            <span>{formatMoney(settlement.balance, currency)}</span>
+            <span className="tabular-nums">{formatMoney(settlement.balance, currency)}</span>
           </p>
         ) : null}
         <Button size="lg" className="w-full" onClick={complete} loading={saving} disabled={!cart.length}>
@@ -431,7 +452,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
         </div>
       </div>
 
-      <aside className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card lg:sticky lg:top-20 lg:block lg:max-h-[calc(100vh-6rem)]">{cartPanel}</aside>
+      <aside className="hidden overflow-hidden rounded-xl border border-slate-200 bg-white shadow-card lg:sticky lg:top-20 lg:flex lg:max-h-[calc(100dvh-6rem)] lg:flex-col lg:self-start">{cartPanel}</aside>
 
       {/* Mobile checkout bar + sheet */}
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white p-3 lg:hidden">
@@ -442,8 +463,8 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
       {mobileCart ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-slate-900/50" onClick={() => setMobileCart(false)} />
-          <div className="absolute inset-x-0 bottom-0 max-h-[92vh] animate-slide-up overflow-y-auto rounded-t-2xl bg-white">
-            <div className="flex justify-end px-3 pt-3">
+          <div className="absolute inset-x-0 bottom-0 flex max-h-[92dvh] animate-slide-up flex-col overflow-hidden rounded-t-2xl bg-white">
+            <div className="flex shrink-0 justify-end px-3 pt-3">
               <button type="button" onClick={() => setMobileCart(false)} className="rounded-lg p-1.5 text-slate-500" aria-label="Close cart">
                 <X className="h-5 w-5" />
               </button>
@@ -468,7 +489,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
           }
           footer={
             <>
-              <WhatsAppReceiptButton sale={receipt.sale} items={receipt.items} businessName={receipt.business?.businessName} currency={currency} phone={receipt.customer?.phone} />
+              <WhatsAppReceiptButton sale={receipt.sale} items={receipt.items} business={receipt.business} customer={receipt.customer} location={receipt.location} currency={currency} phone={receipt.customer?.phone} />
               <Button variant="outline" icon={Printer} onClick={() => window.print()}>
                 Print receipt
               </Button>
@@ -476,7 +497,7 @@ export default function POS({ initialProducts, currency, taxRate, taxLabel, loca
             </>
           }
         >
-          <Receipt sale={receipt.sale} items={receipt.items} business={receipt.business} customer={receipt.customer} location={receipt.location} currency={currency} />
+          <Receipt sale={receipt.sale} items={receipt.items} business={receipt.business} customer={receipt.customer} location={receipt.location} currency={currency} offline={Boolean(receipt.offline)} />
         </Modal>
       ) : null}
     </div>

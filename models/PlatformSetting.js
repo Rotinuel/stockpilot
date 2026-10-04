@@ -14,6 +14,12 @@ const PlatformSettingSchema = new Schema(
       level: { type: String, enum: ["info", "warning", "success"], default: "info" },
     },
     maintenanceMode: { type: Boolean, default: false },
+    referral: {
+      enabled: { type: Boolean, default: true },
+      rewardType: { type: String, enum: ["days", "commission", "both"], default: "both" },
+      rewardDays: { type: Number, default: 30, min: 0, max: 365 },
+      commissionPercent: { type: Number, default: 10, min: 0, max: 100 },
+    },
   },
   baseOptions,
 );

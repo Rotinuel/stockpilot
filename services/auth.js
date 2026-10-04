@@ -19,6 +19,7 @@ import { getPlatformSettings } from "./platform.js";
 import { logAudit } from "./audit.js";
 import { notify } from "./notifications.js";
 import { sessionOpts } from "./_scope.js";
+import { attachReferral } from "./referrals.js";
 
 const MAX_FAILED_LOGINS = 5;
 let dummyHashPromise = null;
@@ -153,6 +154,7 @@ export async function registerBusiness(data, request) {
 
   const user = await User.findById(userId).lean();
   const tenant = await Tenant.findById(tenantId).lean();
+  if (data.referralCode) await attachReferral({ tenantId, code: data.referralCode, email, phone: phoneE164, request });
   if (!google) await sendVerificationEmail(user, verification.token);
   await logAudit({ tenantId, userId, userName: user.name, role: "owner" }, "auth.register", { entity: "Tenant", entityId: tenantId, metadata: { businessName: tenant.businessName, provider: google ? "google" : "password" }, request });
   await notify({

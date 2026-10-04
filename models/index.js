@@ -25,3 +25,4 @@ export { default as Counter } from "./Counter.js";
 export { default as Asset } from "./Asset.js";
 export { default as PlatformSetting } from "./PlatformSetting.js";
 export { default as WhatsAppMessage } from "./WhatsAppMessage.js";
+export { default as Referral } from "./Referral.js";

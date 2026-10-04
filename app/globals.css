@@ -84,27 +84,62 @@
 }
 
 @media print {
+  @page {
+    margin: 4mm;
+  }
   .no-print {
     display: none !important;
   }
+  html,
   body {
     background: white !important;
   }
-  /* Only the receipt/document prints (works inside modals too). */
-  body:has(.print-area) * {
-    visibility: hidden;
+
+  /* Receipts / documents (.print-area) print on their own, even from inside a modal:
+     1. hide every element that neither is nor contains the print area, so nothing else
+        takes up space (no blank pages, no receipt pushed half-way down the page);
+     2. flatten the containers around it (modals, sticky/fixed panels, scroll boxes). */
+  body:has(.print-area) *:not(.print-area):not(.print-area *):not(:has(.print-area)) {
+    display: none !important;
   }
-  body:has(.print-area) .print-area,
-  body:has(.print-area) .print-area * {
-    visibility: visible;
+  body:has(.print-area) :has(.print-area) {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    transform: none !important;
+    animation: none !important;
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    min-height: 0 !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    background: none !important;
+    backdrop-filter: none !important;
   }
   .print-area {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
     box-shadow: none !important;
-    border: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-area .break-inside-avoid {
+    break-inside: avoid;
+  }
+  /* Receipts: exactly the printable width of the paper chosen in Settings, solid black text. */
+  .print-area.receipt {
+    width: var(--receipt-width, 72mm) !important;
+    max-width: 100% !important;
     margin: 0 auto !important;
+    padding: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+  .print-area.receipt,
+  .print-area.receipt * {
+    color: #000 !important;
+    border-color: #000 !important;
   }
 }

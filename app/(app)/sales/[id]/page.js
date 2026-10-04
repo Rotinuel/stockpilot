@@ -39,7 +39,7 @@ export default async function SaleDetailPage({ params }) {
         description={formatDateTime(sale.createdAt, { timeZone: ctx.timezone })}
         actions={
           <>
-            <WhatsAppReceiptButton sale={sale} items={items} businessName={business?.businessName} currency={ctx.currency} phone={customer?.phone} />
+            <WhatsAppReceiptButton sale={sale} items={items} business={business} customer={customer} location={location} currency={ctx.currency} timezone={ctx.timezone} phone={customer?.phone} />
             <PrintButton />
             {sessionCan(session, "sales:cancel") && sale.status === "completed" ? <CancelSaleButton saleId={sale._id} invoiceNumber={sale.invoiceNumber} disabled={!session.access.canWrite} /> : null}
           </>

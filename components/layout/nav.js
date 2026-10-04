@@ -14,6 +14,7 @@ import {
   CreditCard,
   Settings,
   History,
+  Gift,
 } from "lucide-react";
 
 // Sidebar definition. `permission` is checked against the permissions list the
@@ -49,6 +50,7 @@ export const NAV_SECTIONS = [
       { href: "/locations", label: "Locations", icon: MapPin, permission: "locations:view" },
       { href: "/audit-logs", label: "Audit logs", icon: History, permission: "audit:view", feature: "auditLogs" },
       { href: "/billing", label: "Billing", icon: CreditCard, permission: "billing:view" },
+      { href: "/referrals", label: "Refer & earn", icon: Gift, permission: "referrals:view" },
       { href: "/settings", label: "Settings", icon: Settings, permission: null },
     ],
   },
