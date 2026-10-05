@@ -207,6 +207,13 @@ Every business gets a personal link on **Refer & earn** (owners and admins), e.g
 
 Test cards: see Paystack's docs (e.g. `4084 0840 8408 4081`, any future expiry, CVV `408`, PIN `0000`, OTP `123456`).
 
+**Two ways to pay.** When subscribing, upgrading or renewing, the business chooses:
+
+- **Pay once** — a normal one-off Paystack payment for one billing period. Paystack shows every payment method enabled on your account (card, bank transfer, USSD, bank app, QR…). The business is reminded 5, 3 and 1 day(s) before the period ends (`renewal-reminders` cron task) and renews from Billing with **Renew now**.
+- **Automatic renewal** — a Paystack subscription. Paystack only supports **card and direct debit** for recurring payments, so checkout shows only those. If checkout shows only "Choose your bank", the **Card** channel is switched off for your live account: enable Card in your Paystack Dashboard settings (the payment channels section under **Preferences**) and make sure your business is fully activated for live payments — or ask Paystack support to switch on card payments.
+
+If the amount on Paystack is a little higher than the plan price, your Paystack account is set to pass transaction fees to customers (a setting under **Preferences** in the Paystack Dashboard).
+
 ## Seed data & demo logins
 
 `bun run seed` is idempotent (safe to re-run; it never overwrites prices a super admin changed). `bun run seed:reset` deletes and recreates **only the two demo businesses**.
@@ -241,7 +248,7 @@ bun run start             # start the production server
 bun run seed              # seed plans, settings, super admin, demo data
 bun run seed:reset        # recreate the demo businesses
 bun run create-super-admin -- admin@you.com "StrongPassw0rd" "Your Name"
-bun run cron [task]       # run scheduled jobs once (all | trial-reminders | expire-trials | subscriptions | payments | sync-subscriptions | low-stock | referral-credits)
+bun run cron [task]       # run scheduled jobs once (all | trial-reminders | renewal-reminders | expire-trials | subscriptions | payments | sync-subscriptions | low-stock | referral-credits)
 bun run check             # guard rails: JS only, proxy.js present, no middleware.js, no secrets in client code
 bun test                  # = bun run test (unit tests, no database needed)
 bun run test:integration  # needs MONGODB_URI_TEST (database is dropped!)
@@ -368,6 +375,7 @@ Handled events: `charge.success` (first payment, upgrades, **renewals**), `subsc
 | Task | What it does |
 | --- | --- |
 | `trial-reminders` | In-app (+email) reminders at 5, 3 and 1 days left |
+| `renewal-reminders` | Reminds businesses on **Pay once** billing 5, 3 and 1 day(s) before their paid period ends |
 | `expire-trials` | Marks ended trials `expired` (read-only) and notifies |
 | `subscriptions` | Applies scheduled downgrades; moves unrenewed `active` → `past_due` with grace; `past_due` past grace → `expired`; ended `cancelled` → `expired` |
 | `payments` | Re-verifies pending Paystack payments older than 15 min; abandons ones older than 3 days |

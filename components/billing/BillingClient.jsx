@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, CreditCard, LoaderCircle, CircleCheck, CircleX, RotateCcw } from "lucide-react";
+import { Check, CreditCard, LoaderCircle, CircleCheck, CircleX, RotateCcw, Repeat, Landmark } from "lucide-react";
 import Button from "@/components/ui/Button";
+import Modal from "@/components/ui/Modal";
 import { useConfirm } from "@/components/ui/Confirm";
 import { useToast } from "@/components/ui/Toast";
 import { apiFetch, useAction } from "@/hooks/useApi";
@@ -13,20 +14,84 @@ import { cn } from "@/utils/cn";
 
 const INTERVAL = { monthly: "month", quarterly: "quarter", biannually: "6 months", annually: "year" };
 
-export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, canManage, paystackConfigured, periodEnd }) {
+/**
+ * Lets the business choose how to pay before going to Paystack:
+ *  • Pay once — one period; Paystack shows every channel enabled on the account
+ *    (bank transfer, USSD, card, bank…). We remind them before it ends.
+ *  • Automatic renewal — a Paystack subscription; Paystack only offers card and
+ *    direct debit for recurring payments.
+ */
+function CheckoutModal({ plan, action, onClose }) {
+  const router = useRouter();
+  const { run, loading } = useAction();
+  const [autoRenew, setAutoRenew] = useState(false);
+  const price = `${formatMoney(plan.price, plan.currency)} per ${INTERVAL[plan.interval]}`;
+  const title = { subscribe: `Subscribe to ${plan.name}`, upgrade: `Upgrade to ${plan.name}`, renew: `Renew ${plan.name}` }[action] || plan.name;
+  const go = async () => {
+    const res = await run(() => apiFetch("/api/subscriptions/change", { method: "POST", body: { planId: plan._id, autoRenew } }));
+    if (!res) return;
+    if (res.authorizationUrl) {
+      window.location.href = res.authorizationUrl;
+      return;
+    }
+    onClose();
+    router.refresh();
+  };
+  const Option = ({ value, icon: Icon, label, hint }) => (
+    <label className={cn("flex cursor-pointer gap-3 rounded-xl border p-4 transition", autoRenew === value ? "border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/15" : "border-slate-200 hover:border-slate-300")}>
+      <input type="radio" name="payment-mode" className="mt-1 accent-brand-600" checked={autoRenew === value} onChange={() => setAutoRenew(value)} />
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <Icon className="h-4 w-4 text-brand-600" /> {label}
+        </span>
+        <span className="mt-0.5 block text-sm text-slate-600">{hint}</span>
+      </span>
+    </label>
+  );
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      description={`${price}.${action === "upgrade" ? " Your new billing period starts today." : action === "renew" ? " The new period starts when your current one ends." : ""}`}
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={go} loading={loading}>
+            Continue to payment
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <Option value={false} icon={Landmark} label="Pay once" hint={`Bank transfer, USSD, card or bank app. Covers one ${INTERVAL[plan.interval]} — we'll remind you before it ends.`} />
+        <Option value={true} icon={Repeat} label="Automatic renewal" hint={`Card or direct debit only. Charged every ${INTERVAL[plan.interval]} until you cancel.`} />
+        <p className="text-xs text-slate-500">You'll complete payment securely on Paystack.</p>
+      </div>
+    </Modal>
+  );
+}
+
+export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, canManage, paystackConfigured, periodEnd, billingMode = "auto" }) {
   const confirm = useConfirm();
   const router = useRouter();
   const toast = useToast();
   const { run } = useAction();
   const [busy, setBusy] = useState(null);
+  const [checkout, setCheckout] = useState(null);
 
   const choose = async (plan) => {
     if (!paystackConfigured) {
       toast.error("Payments aren't set up yet", "Online payment (Paystack) hasn't been configured, so this plan can't be purchased yet. See the notice at the top of this page.");
       return;
     }
-    let action = "subscribe";
-    if (isPaidActive) action = plan.price > currentPrice ? "upgrade" : "downgrade";
+    const isCurrent = String(plan._id) === String(currentPlanId) && isPaidActive;
+    if (isCurrent) return setCheckout({ plan, action: "renew" });
+    if (!isPaidActive) return setCheckout({ plan, action: "subscribe" });
+    if (plan.price > currentPrice) return setCheckout({ plan, action: "upgrade" });
+    let action = "downgrade";
     const copy = {
       subscribe: { title: `Subscribe to ${plan.name}?`, message: `You'll be taken to Paystack to pay ${formatMoney(plan.price, plan.currency)} per ${INTERVAL[plan.interval]}. Your subscription renews automatically until you cancel.`, confirmLabel: "Continue to payment" },
       upgrade: { title: `Upgrade to ${plan.name}?`, message: `You'll pay ${formatMoney(plan.price, plan.currency)} now and your new billing period starts today. Your current plan's recurring charge will be stopped.`, confirmLabel: "Upgrade now" },
@@ -51,9 +116,11 @@ export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, ca
 
   return (
     <div className={cn("grid gap-5", plans.length >= 3 ? "lg:grid-cols-3" : "md:grid-cols-2")}>
+      {checkout ? <CheckoutModal plan={checkout.plan} action={checkout.action} onClose={() => setCheckout(null)} /> : null}
       {plans.map((plan) => {
         const current = String(plan._id) === String(currentPlanId) && isPaidActive;
-        const label = current ? "Current plan" : !isPaidActive ? "Subscribe" : plan.price > currentPrice ? "Upgrade" : "Downgrade";
+        const canRenew = current && billingMode === "manual";
+        const label = canRenew ? "Pay for next period" : current ? "Current plan" : !isPaidActive ? "Subscribe" : plan.price > currentPrice ? "Upgrade" : "Downgrade";
         return (
           <div key={plan._id} className={cn("flex flex-col rounded-2xl border bg-white p-6 shadow-card", current ? "border-emerald-400 ring-2 ring-emerald-400/20" : plan.highlight ? "border-brand-400" : "border-slate-200")}>
             <div className="flex items-center justify-between">
@@ -73,7 +140,7 @@ export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, ca
               ))}
             </ul>
             {canManage ? (
-              <Button className="mt-6 w-full" variant={current ? "outline" : label === "Downgrade" ? "outline" : "primary"} disabled={current || (busy && busy !== plan._id)} loading={busy === plan._id} onClick={() => choose(plan)}>
+              <Button className="mt-6 w-full" variant={current && !canRenew ? "outline" : label === "Downgrade" ? "outline" : "primary"} disabled={(current && !canRenew) || (busy && busy !== plan._id)} loading={busy === plan._id} onClick={() => choose(plan)}>
                 {label}
               </Button>
             ) : null}
@@ -84,10 +151,12 @@ export function PlanCards({ plans, currentPlanId, currentPrice, isPaidActive, ca
   );
 }
 
-export function SubscriptionControls({ status, canManage, hasCard, hasPending, accessUntil }) {
+export function SubscriptionControls({ status, canManage, hasCard, hasPending, accessUntil, billingMode = "auto", currentPlan = null }) {
   const confirm = useConfirm();
   const { run, loading } = useAction();
+  const [renewing, setRenewing] = useState(false);
   if (!canManage) return null;
+  const manual = billingMode === "manual";
 
   const cancel = async () => {
     const ok = await confirm({
@@ -111,6 +180,12 @@ export function SubscriptionControls({ status, canManage, hasCard, hasPending, a
 
   return (
     <div className="flex flex-wrap gap-2">
+      {renewing && currentPlan ? <CheckoutModal plan={currentPlan} action="renew" onClose={() => setRenewing(false)} /> : null}
+      {manual && currentPlan && !currentPlan.isTrial && ["active", "past_due", "expired"].includes(status) ? (
+        <Button size="sm" icon={Repeat} onClick={() => setRenewing(true)}>
+          Renew now
+        </Button>
+      ) : null}
       {hasCard && ["active", "past_due"].includes(status) ? (
         <Button variant="outline" size="sm" icon={CreditCard} onClick={manageCard} loading={loading}>
           Update card
@@ -121,12 +196,12 @@ export function SubscriptionControls({ status, canManage, hasCard, hasPending, a
           Undo scheduled change
         </Button>
       ) : null}
-      {status === "cancelled" ? (
+      {status === "cancelled" && !manual ? (
         <Button size="sm" onClick={resume} loading={loading}>
           Resume subscription
         </Button>
       ) : null}
-      {["active", "past_due"].includes(status) ? (
+      {["active", "past_due"].includes(status) && !manual ? (
         <Button variant="danger-outline" size="sm" onClick={cancel} loading={loading}>
           Cancel subscription
         </Button>

@@ -95,8 +95,11 @@ export async function processSubscriptionExpiry(now = new Date()) {
       roles: ["owner", "admin"],
       type: "payment_failed",
       severity: "warning",
-      title: "We couldn't confirm your renewal",
-      message: `Please check your payment method. You have until ${graceEndsAt.toDateString()} before your account becomes read-only.`,
+      title: t.billingMode === "manual" ? "Your subscription has ended — renew now" : "We couldn't confirm your renewal",
+      message:
+        t.billingMode === "manual"
+          ? `Pay for your next period from Billing to keep everything running. You have until ${graceEndsAt.toDateString()} before your account becomes read-only.`
+          : `Please check your payment method. You have until ${graceEndsAt.toDateString()} before your account becomes read-only.`,
       link: "/billing",
       dedupeKey: `overdue:${t._id}:${new Date(t.subscriptionEndDate).toISOString().slice(0, 10)}`,
       email: true,
@@ -174,6 +177,38 @@ export async function syncSubscriptions() {
   return { synced };
 }
 
+/** Businesses that pay each period themselves (transfer, USSD…) get reminded 5, 3 and 1 day(s) before it ends. */
+export async function sendRenewalReminders(now = new Date()) {
+  const tenants = await Tenant.find({
+    subscriptionStatus: "active",
+    billingMode: "manual",
+    subscriptionEndDate: { $gt: now, $lte: addDays(now, 5) },
+  })
+    .select("subscriptionEndDate businessName")
+    .limit(BATCH)
+    .lean();
+  let sent = 0;
+  for (const t of tenants) {
+    const days = Math.max(1, Math.ceil((new Date(t.subscriptionEndDate) - now) / 86400000));
+    const mark = days <= 1 ? 1 : days <= 3 ? 3 : 5;
+    const end = new Date(t.subscriptionEndDate);
+    await notify({
+      tenantId: t._id,
+      roles: ["owner", "admin"],
+      type: "renewal_due",
+      severity: mark === 1 ? "danger" : "warning",
+      title: mark === 1 ? "Your subscription ends tomorrow" : `Your subscription ends in ${days} days`,
+      message: `Renew from Billing before ${end.toDateString()} to avoid interruption. You can pay by transfer, USSD or card.`,
+      link: "/billing",
+      dedupeKey: `renew-${mark}:${t._id}:${end.toISOString().slice(0, 10)}`,
+      email: true,
+      whatsapp: true,
+    });
+    sent++;
+  }
+  return { checked: tenants.length, sent };
+}
+
 export async function lowStockDigest(now = new Date()) {
   const today = new Date(now);
   today.setUTCHours(0, 0, 0, 0);
@@ -211,6 +246,7 @@ export async function lowStockDigest(now = new Date()) {
 
 export const CRON_TASKS = {
   "trial-reminders": sendTrialReminders,
+  "renewal-reminders": sendRenewalReminders,
   "expire-trials": expireTrials,
   subscriptions: processSubscriptionExpiry,
   payments: reconcilePendingPayments,

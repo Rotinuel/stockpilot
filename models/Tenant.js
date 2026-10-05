@@ -38,6 +38,8 @@ const TenantSchema = new Schema(
     subscriptionEndDate: Date,
     nextBillingDate: Date,
     cancelAtPeriodEnd: { type: Boolean, default: false },
+    // "auto": Paystack charges the saved card/bank every period. "manual": pays each period (transfer, USSD, card…).
+    billingMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     cancelledAt: Date,
     pastDueSince: Date,
     graceEndsAt: Date,

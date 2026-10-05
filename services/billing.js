@@ -98,15 +98,17 @@ async function ownerOf(tenant) {
  * Start a Paystack checkout for `planId`. Returns the hosted authorization URL.
  * @param {'subscription'|'upgrade'|'renewal'} [purposeHint]
  */
-export async function startCheckout(ctx, planId, request, purposeHint) {
+export async function startCheckout(ctx, planId, request, purposeHint, { autoRenew = true } = {}) {
   const plan = await getPlanById(planId);
   if (!plan || !plan.isActive || plan.isTrial || plan.price <= 0) throw badRequest("Please choose a valid paid plan.");
   const tenant = await Tenant.findById(ctx.tenantId).lean();
   const access = ctx.access;
 
   const isCurrentlyPaid = ["active", "cancelled", "past_due"].includes(access?.state) && tenant.subscriptionStatus !== "trialing";
-  if (isCurrentlyPaid && String(tenant.subscriptionPlan) === String(plan._id) && access.state === "active") {
-    throw conflict(`You are already subscribed to the ${plan.name} plan.`);
+  // Same plan while it renews automatically → nothing to pay. (Manual payers can renew early;
+  // the new period starts when the current one ends.)
+  if (isCurrentlyPaid && String(tenant.subscriptionPlan) === String(plan._id) && access.state === "active" && tenant.paystackSubscriptionCode) {
+    throw conflict(`Your ${plan.name} plan already renews automatically.`);
   }
 
   let purpose = purposeHint || "subscription";
@@ -117,7 +119,9 @@ export async function startCheckout(ctx, planId, request, purposeHint) {
 
   const owner = await ownerOf(tenant);
   if (!owner?.email) throw badRequest("The business owner's email is missing.");
-  const planCode = await ensurePaystackPlan(plan);
+  // Recurring checkout (with a Paystack plan) only offers card and direct debit; a one-off
+  // payment offers every channel enabled on the Paystack account (transfer, USSD, card…).
+  const planCode = autoRenew ? await ensurePaystackPlan(plan) : null;
   const reference = randomReference("SP");
 
   const payment = await Payment.create({
@@ -129,6 +133,7 @@ export async function startCheckout(ctx, planId, request, purposeHint) {
     currency: plan.currency || "NGN",
     status: "pending",
     purpose,
+    autoRenew,
     initiatedBy: ctx.userId,
     customerEmail: owner.email,
   });
@@ -140,13 +145,14 @@ export async function startCheckout(ctx, planId, request, purposeHint) {
       amount: toSubunit(plan.price),
       reference,
       callbackUrl: appUrl("/billing/callback"),
-      plan: planCode,
+      plan: planCode || undefined,
       currency: plan.currency || "NGN",
       metadata: {
         tenantId: String(tenant._id),
         planId: String(plan._id),
         paymentId: String(payment._id),
         purpose,
+        autoRenew,
         custom_fields: [
           { display_name: "Business", variable_name: "business", value: tenant.businessName },
           { display_name: "Plan", variable_name: "plan", value: plan.name },
@@ -158,7 +164,7 @@ export async function startCheckout(ctx, planId, request, purposeHint) {
     throw err;
   }
 
-  await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount: plan.price, purpose, reference }, request });
+  await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount: plan.price, purpose, reference, autoRenew }, request });
   return { authorizationUrl: init.authorization_url, accessCode: init.access_code, reference };
 }
 
@@ -243,8 +249,10 @@ async function applySuccessfulPayment(payment, tx, via) {
   if (!plan || !tenant) return { alreadyProcessed: false };
 
   // Upgrading from another paid plan: stop the old recurring subscription.
+  const autoRenew = payment.autoRenew !== false;
   const previousCode = tenant.paystackSubscriptionCode;
-  if (previousCode && String(tenant.subscriptionPlan) !== String(plan._id) && tenant.paystackEmailToken) {
+  const replacesOld = previousCode && (String(tenant.subscriptionPlan) !== String(plan._id) || !autoRenew);
+  if (replacesOld && tenant.paystackEmailToken) {
     try {
       await paystack.disableSubscription({ code: previousCode, token: tenant.paystackEmailToken });
     } catch (err) {
@@ -284,12 +292,13 @@ async function applySuccessfulPayment(payment, tx, via) {
     subscriptionEndDate: end,
     nextBillingDate: end,
     cancelAtPeriodEnd: false,
+    billingMode: autoRenew ? "auto" : "manual",
     cardLast4: tx.authorization?.last4 || tenant.cardLast4,
     cardBrand: tx.authorization?.brand || tenant.cardBrand,
   };
   if (tx.customer?.customer_code) $set.paystackCustomerCode = tx.customer.customer_code;
   if (tx.authorization?.reusable && tx.authorization?.authorization_code) $set.paystackAuthorizationCode = tx.authorization.authorization_code;
-  if (previousCode && String(tenant.subscriptionPlan) !== String(plan._id)) $set.paystackSubscriptionCode = null; // new code arrives via subscription.create
+  if (replacesOld) $set.paystackSubscriptionCode = null; // a new code (if any) arrives via subscription.create
 
   await Tenant.updateOne(
     { _id: tenant._id },
@@ -363,19 +372,21 @@ export async function resumeSubscription(ctx, request) {
  * Upgrades are charged immediately (new billing period starts today).
  * Downgrades take effect at the end of the current paid period.
  */
-export async function changePlan(ctx, planId, request) {
+export async function changePlan(ctx, planId, request, { autoRenew = true } = {}) {
   const target = await getPlanById(planId);
   if (!target || !target.isActive || target.isTrial) throw badRequest("Please choose a valid plan.");
   const tenant = await Tenant.findById(ctx.tenantId).select("+paystackEmailToken +paystackAuthorizationCode").lean();
   const current = await getEffectivePlan(tenant);
   const paidAndActive = ["active", "past_due", "cancelled"].includes(ctx.access?.state) && tenant.subscriptionStatus !== "trialing";
 
-  if (!paidAndActive) return { action: "checkout", ...(await startCheckout(ctx, planId, request)) };
+  if (!paidAndActive) return { action: "checkout", ...(await startCheckout(ctx, planId, request, undefined, { autoRenew })) };
   if (String(current._id) === String(target._id)) {
-    if (tenant.subscriptionStatus === "cancelled") return { action: "resume", ...(await resumeSubscription(ctx, request)) };
+    if (tenant.subscriptionStatus === "cancelled" && tenant.paystackSubscriptionCode) return { action: "resume", ...(await resumeSubscription(ctx, request)) };
+    // Manual payers renew (or switch to automatic renewal) by paying for the next period.
+    if (!tenant.paystackSubscriptionCode || tenant.subscriptionStatus !== "active") return { action: "checkout", ...(await startCheckout(ctx, planId, request, "renewal", { autoRenew })) };
     throw conflict(`You are already on the ${target.name} plan.`);
   }
-  if (target.price > current.price) return { action: "checkout", ...(await startCheckout(ctx, planId, request, "upgrade")) };
+  if (target.price > current.price) return { action: "checkout", ...(await startCheckout(ctx, planId, request, "upgrade", { autoRenew })) };
 
   // Downgrade — make sure current usage fits the smaller plan.
   const usage = await getUsage(ctx.tenantId, { timezone: ctx.timezone });
@@ -387,7 +398,7 @@ export async function changePlan(ctx, planId, request) {
 
   const effectiveAt = tenant.subscriptionEndDate ? new Date(tenant.subscriptionEndDate) : new Date();
   let scheduledOnPaystack = false;
-  if (isPaystackConfigured()) {
+  if (isPaystackConfigured() && tenant.billingMode !== "manual") {
     const planCode = await ensurePaystackPlan(target);
     if (tenant.paystackSubscriptionCode && tenant.paystackEmailToken) {
       await paystack.disableSubscription({ code: tenant.paystackSubscriptionCode, token: tenant.paystackEmailToken });

@@ -12,6 +12,9 @@ const PaymentSchema = new Schema(
     currency: { type: String, default: "NGN" },
     status: { type: String, enum: ["pending", "success", "failed", "abandoned", "reversed"], default: "pending", index: true },
     purpose: { type: String, enum: ["subscription", "renewal", "upgrade", "downgrade"], default: "subscription" },
+    // true: Paystack subscription (card / direct debit, renews automatically).
+    // false: one-off payment for one period (card, transfer, USSD, bank… — renewed manually).
+    autoRenew: { type: Boolean, default: true },
     channel: String,
     gatewayResponse: String,
     failureReason: String,

@@ -24,6 +24,7 @@ export default async function BillingPage() {
   const isDev = process.env.NODE_ENV !== "production";
   const isTrial = tenant.subscriptionStatus === "trialing";
   const isPaidActive = ["active", "past_due", "cancelled"].includes(access.state);
+  const manual = tenant.billingMode === "manual" && !isTrial;
   const statusLabel = access.state === "trial_expired" ? "Trial expired" : SUBSCRIPTION_STATUS_LABELS[access.effectiveStatus] || access.effectiveStatus;
   const usageRows = [
     { key: "products", label: "Products", value: usage.products },
@@ -66,7 +67,17 @@ export default async function BillingPage() {
           <CardHeader
             title="Current plan"
             icon={CreditCard}
-            action={<SubscriptionControls status={tenant.subscriptionStatus} canManage={canManage} hasCard={Boolean(tenant.paystackSubscriptionCode)} hasPending={Boolean(pendingPlan)} accessUntil={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null} />}
+            action={
+              <SubscriptionControls
+                status={tenant.subscriptionStatus}
+                canManage={canManage && data.paystackConfigured}
+                hasCard={Boolean(tenant.paystackSubscriptionCode)}
+                hasPending={Boolean(pendingPlan)}
+                accessUntil={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null}
+                billingMode={manual ? "manual" : "auto"}
+                currentPlan={currentPlan && !currentPlan.isTrial ? { _id: String(currentPlan._id), name: currentPlan.name, price: currentPlan.price, currency: currentPlan.currency, interval: currentPlan.interval, isTrial: false } : null}
+              />
+            }
           />
           <CardBody>
             <div className="flex flex-wrap items-end justify-between gap-4">
@@ -90,7 +101,11 @@ export default async function BillingPage() {
                 ) : (
                   <>
                     <KeyValue label="Current period started" value={formatDate(tenant.subscriptionStartDate)} />
-                    <KeyValue label={tenant.subscriptionStatus === "cancelled" ? "Access until" : "Next billing date"} value={formatDate(tenant.nextBillingDate || tenant.subscriptionEndDate)} />
+                    <KeyValue
+                      label={tenant.subscriptionStatus === "cancelled" ? "Access until" : manual ? "Paid until" : "Next billing date"}
+                      value={formatDate(manual ? tenant.subscriptionEndDate : tenant.nextBillingDate || tenant.subscriptionEndDate)}
+                    />
+                    <KeyValue label="Renewal" value={manual ? "You pay each period (we remind you)" : "Automatic"} />
                     {access.inGrace ? <KeyValue label="Grace period ends" value={formatDate(access.graceEndsAt)} /> : null}
                   </>
                 )}
@@ -129,8 +144,9 @@ export default async function BillingPage() {
         canManage={canManage}
         paystackConfigured={data.paystackConfigured}
         periodEnd={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null}
+        billingMode={manual ? "manual" : "auto"}
       />
-      <p className="mt-3 text-xs text-slate-500">Payments are processed securely by Paystack. Upgrades start immediately; downgrades apply at the end of your current billing period.</p>
+      <p className="mt-3 text-xs text-slate-500">Payments are processed securely by Paystack. Choose <strong>Pay once</strong> to pay by bank transfer, USSD or card, or <strong>Automatic renewal</strong> to be charged by card/direct debit each period. Upgrades start immediately; downgrades apply at the end of your current billing period.</p>
 
       <h2 className="mt-10 mb-4 text-lg font-semibold text-slate-900">Payment history</h2>
       {payments.length ? (
