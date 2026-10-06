@@ -3,11 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, X, LogOut, Settings, CreditCard, UserRound, Lock, Sparkles } from "lucide-react";
+import { Menu, X, LogOut, Settings, CreditCard, UserRound, Lock, Sparkles, Download } from "lucide-react";
 import { NAV_SECTIONS } from "./nav";
 import { LogoMark } from "./Logo";
 import NotificationBell from "./NotificationBell";
 import OfflineManager from "@/components/offline/OfflineManager";
+import InstallPrompt, { InstallHelpModal, useInstallApp } from "@/components/offline/InstallApp";
 import { useConfirm } from "@/components/ui/Confirm";
 import { clearOfflineData, listOutbox } from "@/lib/offline/store";
 import Dropdown, { DropdownItem, DropdownSeparator } from "@/components/ui/Dropdown";
@@ -89,6 +90,12 @@ function SidebarContent({ session, permissions, badges, onNavigate }) {
 }
 
 export default function AppShell({ session, permissions, badges, children }) {
+  const installApp = useInstallApp();
+  const [installHelp, setInstallHelp] = useState(false);
+  const onInstallClick = async () => {
+    if (installApp.canPrompt) await installApp.install();
+    else setInstallHelp(true);
+  };
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -187,6 +194,11 @@ export default function AppShell({ session, permissions, badges, children }) {
                 Billing
               </DropdownItem>
             ) : null}
+            {!installApp.installed ? (
+              <DropdownItem onClick={onInstallClick} icon={Download}>
+                Install app
+              </DropdownItem>
+            ) : null}
             <DropdownSeparator />
             <DropdownItem onClick={logout} icon={LogOut} tone="danger">
               Sign out
@@ -194,6 +206,8 @@ export default function AppShell({ session, permissions, badges, children }) {
           </Dropdown>
         </header>
         <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <InstallPrompt />
+        {installHelp ? <InstallHelpModal platform={installApp.platform} onClose={() => setInstallHelp(false)} /> : null}
       </div>
     </div>
   );
