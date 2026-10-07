@@ -8,6 +8,7 @@ import { PLAN_FEATURE_LABELS } from "@/lib/constants";
 import { PageHeader, TableCard, Alert } from "@/components/ui/Misc";
 import Badge from "@/components/ui/Badge";
 import { NewPlanButton, PlanRowActions } from "@/components/admin/PlanEditor";
+import { planPrice, storedPaystackPlanCode } from "@/lib/pricing";
 
 export const metadata = { title: "Plans & pricing" };
 
@@ -47,7 +48,18 @@ export default async function PlansPage() {
                     {p.code} · {p.isTrial ? `${p.durationDays} days` : p.interval}
                   </p>
                 </td>
-                <td className="text-right font-medium tabular-nums">{formatMoney(p.price, p.currency)}</td>
+                <td className="text-right tabular-nums">
+                  {p.isTrial ? (
+                    <span className="font-medium">Free</span>
+                  ) : (
+                    <>
+                      <p className="font-medium">
+                        {formatMoney(p.price, "NGN")}/mo · {formatMoney(planPrice(p, "NGN", "annually"), "NGN")}/yr
+                      </p>
+                      <p className="text-xs text-slate-500">{p.usdPrice ? `${formatMoney(p.usdPrice, "USD")}/mo · ${formatMoney(planPrice(p, "USD", "annually"), "USD")}/yr` : "Not sold in USD"}</p>
+                    </>
+                  )}
+                </td>
                 <td className="hidden text-xs text-slate-600 md:table-cell">
                   {limitLabel(p.limits.products)} products · {limitLabel(p.limits.staffUsers)} staff · {limitLabel(p.limits.locations)} locations
                 </td>
@@ -58,7 +70,17 @@ export default async function PlansPage() {
                     .join(", ") || "Basic"}
                 </td>
                 <td className="hidden tabular-nums sm:table-cell">{p.tenantCount}</td>
-                <td className="hidden font-mono text-xs text-slate-500 lg:table-cell">{p.paystackPlanCode || "—"}</td>
+                <td className="hidden font-mono text-xs text-slate-500 lg:table-cell">
+                  {[["NGN", "monthly"], ["NGN", "annually"], ["USD", "monthly"], ["USD", "annually"]]
+                    .map(([c, cy]) => [c, cy, storedPaystackPlanCode(p, c, cy)])
+                    .filter(([, , code]) => code)
+                    .map(([c, cy, code]) => (
+                      <span key={c + cy} className="block">
+                        {c} {cy === "annually" ? "yr" : "mo"}: {code}
+                      </span>
+                    ))}
+                  {!storedPaystackPlanCode(p, "NGN", "monthly") && !storedPaystackPlanCode(p, "USD", "monthly") ? "—" : null}
+                </td>
                 <td>
                   <PlanRowActions plan={p} paystackConfigured={configured} />
                 </td>

@@ -42,7 +42,7 @@ export default function PlatformSettingsForm({ settings }) {
             <Input value={v.defaultCurrency} maxLength={3} onChange={(e) => setV({ ...v, defaultCurrency: e.target.value.toUpperCase() })} />
           </Field>
           <Checkbox className="sm:col-span-2" checked={v.allowRegistrations} onChange={(e) => setV({ ...v, allowRegistrations: e.target.checked })} label="Allow new registrations" description="Turn off to pause sign-ups (existing businesses are unaffected)." />
-          <p className="text-xs text-slate-500 sm:col-span-2">The free trial is fixed at exactly 7 days by business rule.</p>
+          <p className="text-xs text-slate-500 sm:col-span-2">The free trial is fixed at exactly 3 days by business rule.</p>
         </CardBody>
       </Card>
       <Card>

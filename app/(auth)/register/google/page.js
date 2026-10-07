@@ -30,7 +30,7 @@ export default async function GoogleSignupPage() {
         <GoogleIcon className="h-4 w-4" /> Signed in with Google
       </div>
       <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Tell us about your business</h1>
-      <p className="mt-1 mb-8 text-sm text-slate-500">One last step to create your workspace and start your 7-day free trial.</p>
+      <p className="mt-1 mb-8 text-sm text-slate-500">One last step to create your workspace and start your 3-day free trial.</p>
       <ReferralNotice businessName={referral?.businessName} />
       <GoogleSignupForm name={pending.name} email={pending.email} referralCode={referral?.code || ""} />
     </>

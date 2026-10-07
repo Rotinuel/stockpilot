@@ -14,7 +14,13 @@ const SubscriptionPlanSchema = new Schema(
     isPublic: { type: Boolean, default: true },
     highlight: { type: Boolean, default: false },
     sortOrder: { type: Number, default: 0 },
-    paystackPlanCode: { type: String, default: "" },
+    paystackPlanCode: { type: String, default: "" }, // NGN monthly (legacy field)
+    // Optional prices (0 = automatic / not sold). `price` is the NGN monthly price.
+    yearlyPrice: { type: Number, default: 0, min: 0 }, // NGN per year (0 → 10 × monthly)
+    usdPrice: { type: Number, default: 0, min: 0 }, // USD per month (0 → not sold in USD)
+    usdYearlyPrice: { type: Number, default: 0, min: 0 }, // USD per year (0 → 10 × monthly)
+    // Paystack plan codes per currency/cycle, e.g. { NGN_annually: "PLN_…", USD_monthly: "PLN_…" }
+    paystackPlanCodes: { type: Schema.Types.Mixed, default: {} },
     featureList: { type: [String], default: [] },
     // -1 means unlimited
     limits: {

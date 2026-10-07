@@ -33,9 +33,17 @@ export default function Navbar() {
             Start free trial
           </Link>
         </div>
-        <button type="button" className="rounded-lg p-2 text-slate-600 md:hidden" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu" aria-expanded={open}>
-          {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
+        <div className="flex items-center gap-1 md:hidden">
+          <Link href="/login" className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+            Sign in
+          </Link>
+          <Link href="/register" className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-700">
+            Free trial
+          </Link>
+          <button type="button" className="rounded-lg p-2 text-slate-600" onClick={() => setOpen((o) => !o)} aria-label="Toggle menu" aria-expanded={open}>
+            {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </button>
+        </div>
       </nav>
       {open ? (
         <div className="border-t border-slate-200 bg-white px-4 py-4 md:hidden">
@@ -49,7 +57,7 @@ export default function Navbar() {
               Sign in
             </Link>
             <Link href="/register" className="mt-2 rounded-lg bg-brand-600 px-4 py-2.5 text-center text-sm font-semibold text-white">
-              Start your 7-day free trial
+              Start your 3-day free trial
             </Link>
           </div>
         </div>

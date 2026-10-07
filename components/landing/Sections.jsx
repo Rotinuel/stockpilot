@@ -34,13 +34,18 @@ export function Hero() {
         </p>
         <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link href="/register" className="inline-flex items-center gap-2 rounded-xl bg-brand-600 px-6 py-3.5 text-base font-semibold text-white shadow-lg shadow-brand-600/25 hover:bg-brand-700">
-            Start Your 7-Day Free Trial <ArrowRight className="h-4 w-4" />
+            Start Your 3-Day Free Trial <ArrowRight className="h-4 w-4" />
           </Link>
-          <a href="#pricing" className="rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-base font-semibold text-slate-800 hover:bg-slate-50">
-            View Pricing
-          </a>
+          <Link href="/login" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-6 py-3.5 text-base font-semibold text-slate-800 hover:bg-slate-50">
+            Sign in
+          </Link>
         </div>
-        <p className="mt-4 text-sm text-slate-500">No payment required to start your 7-day trial.</p>
+        <p className="mt-4 text-sm text-slate-500">
+          No payment required to start your 3-day trial ·{" "}
+          <a href="#pricing" className="font-medium text-brand-700 hover:text-brand-800">
+            See pricing
+          </a>
+        </p>
       </div>
     </section>
   );
@@ -110,7 +115,7 @@ export function Features() {
 
 export function HowItWorks() {
   const steps = [
-    { icon: Store, title: "Create your workspace", text: "Register your business in under two minutes. Your 7-day free trial starts immediately." },
+    { icon: Store, title: "Create your workspace", text: "Register your business in under two minutes. Your 3-day free trial starts immediately." },
     { icon: ClipboardList, title: "Add your products", text: "Type them in or import a CSV. Set opening stock, prices and reorder levels." },
     { icon: Receipt, title: "Start selling", text: "Use the POS for every sale. Stock, customer balances and reports update automatically." },
     { icon: CreditCard, title: "Choose a plan", text: "When your trial ends, subscribe securely through Paystack. Your data stays intact." },
@@ -165,13 +170,14 @@ export function Testimonials() {
 }
 
 const FAQS = [
-  ["Do I need a card to start the free trial?", "No. Your 7-day trial starts as soon as you register and no payment details are required."],
+  ["Do I need a card to start the free trial?", "No. Your 3-day trial starts as soon as you register and no payment details are required."],
   ["What happens when my trial ends?", "Your account becomes read-only: you can still sign in and view your products, sales and reports, but you'll need to subscribe to record new sales or stock changes. Nothing is deleted."],
-  ["How do payments work?", "Subscriptions are billed through Paystack. You can pay with card, and Paystack handles renewals automatically. You can upgrade, downgrade or cancel from the Billing page."],
+  ["How do payments work?", "Pay securely through Paystack, monthly or yearly (yearly gets 2 months free). Businesses in Nigeria pay in Naira by card, bank transfer or USSD; businesses in other countries pay in US dollars by card. Choose automatic renewal or pay each period yourself, and upgrade, downgrade or cancel from the Billing page."],
+  ["Can I use StockPilot outside Nigeria?", "Yes. StockPilot works in any country: sell in your own currency, use your local time zone and phone numbers, and pay for your subscription in US dollars."],
   ["Can my staff use it?", "Yes. Invite staff as admins, managers, cashiers or inventory staff. Each role only sees what it needs — cashiers can't delete products or see your profit reports, for example."],
   ["Is my data separate from other businesses?", "Yes. Every business has its own isolated workspace, and every request is checked on the server against your account."],
   ["Can I import my existing products?", "Yes — upload a CSV with your product names, prices and quantities, or add them one by one."],
-  ["Does it work on my phone?", "Yes. StockPilot works in any modern browser on phones, tablets and computers."],
+  ["Does it work on my phone?", "Yes. StockPilot works in any modern browser on phones, tablets and computers — and you can install it as an app that keeps working offline."],
 ];
 
 export function FAQ() {
@@ -207,11 +213,16 @@ export function CTA() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="relative overflow-hidden rounded-3xl bg-linear-to-br from-brand-950 via-brand-800 to-brand-600 px-6 py-14 text-center sm:px-16">
           <h2 className="text-3xl font-bold tracking-tight text-white sm:text-4xl">Take control of your shop this week</h2>
-          <p className="mx-auto mt-4 max-w-xl text-brand-100">Set up in minutes. Try every feature free for 7 days.</p>
-          <Link href="/register" className="mt-8 inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 font-semibold text-brand-700 hover:bg-brand-50">
-            Start Your 7-Day Free Trial <ArrowRight className="h-4 w-4" />
-          </Link>
-          <p className="mt-3 text-sm text-brand-200">No payment required to start your 7-day trial.</p>
+          <p className="mx-auto mt-4 max-w-xl text-brand-100">Set up in minutes. Try every feature free for 3 days.</p>
+          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link href="/register" className="inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 font-semibold text-brand-700 hover:bg-brand-50">
+              Start Your 3-Day Free Trial <ArrowRight className="h-4 w-4" />
+            </Link>
+            <Link href="/login" className="inline-flex items-center rounded-xl border border-white/40 px-6 py-3.5 font-semibold text-white hover:bg-white/10">
+              Sign in
+            </Link>
+          </div>
+          <p className="mt-3 text-sm text-brand-200">No payment required to start your 3-day trial.</p>
         </div>
       </div>
     </section>

@@ -216,7 +216,7 @@ export default function Wizard({ tenant, initialStep = 1, canInvite }) {
 
         {step === 6 ? (
           <div className="space-y-3 text-sm text-slate-600">
-            <p>Your workspace is set up. Your 7-day free trial is running — explore everything, no payment needed.</p>
+            <p>Your workspace is set up. Your 3-day free trial is running — explore everything, no payment needed.</p>
             <ul className="space-y-2">
               {["Open the POS and record a sale", "Add or import the rest of your products", "Record a purchase when stock arrives", "Check the dashboard for today's numbers"].map((t) => (
                 <li key={t} className="flex items-center gap-2">

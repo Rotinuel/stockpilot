@@ -13,7 +13,7 @@ export default function AuthLayout({ children }) {
         <div className="absolute -top-24 -right-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" aria-hidden />
         <h2 className="max-w-md text-3xl font-bold text-white">Know your stock. Know your numbers.</h2>
         <ul className="mt-8 space-y-4 text-brand-100">
-          {["7-day free trial — no payment required", "POS, inventory, customers, suppliers & expenses", "Real profit reports: gross and net", "Staff roles with the right access for each person"].map((t) => (
+          {["3-day free trial — no payment required", "POS, inventory, customers, suppliers & expenses", "Real profit reports: gross and net", "Staff roles with the right access for each person"].map((t) => (
             <li key={t} className="flex items-center gap-3">
               <CircleCheck className="h-5 w-5 text-emerald-300" /> {t}
             </li>

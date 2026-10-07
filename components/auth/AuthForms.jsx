@@ -8,6 +8,7 @@ import Button from "@/components/ui/Button";
 import { Field, Input, Select, Checkbox } from "@/components/ui/Field";
 import { apiFetch } from "@/hooks/useApi";
 import { BUSINESS_TYPES, COUNTRIES } from "@/lib/constants";
+import { rememberUser, lastUser } from "@/lib/last-user";
 
 function PasswordInput({ id, value, onChange, error, autoComplete = "current-password", placeholder }) {
   const [show, setShow] = useState(false);
@@ -18,6 +19,54 @@ function PasswordInput({ id, value, onChange, error, autoComplete = "current-pas
         {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
       </button>
     </div>
+  );
+}
+
+/** Best guess of the visitor's country from the browser (language region, then timezone). */
+function detectCountry() {
+  try {
+    const codes = new Set(COUNTRIES.map((c) => c.code));
+    for (const lang of navigator.languages || [navigator.language]) {
+      const region = String(lang || "").split("-")[1]?.toUpperCase();
+      if (region && codes.has(region)) return region;
+    }
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    if (tz === "Africa/Lagos") return "NG";
+  } catch {}
+  return null;
+}
+
+function browserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function phonePlaceholder(code) {
+  if (code === "NG") return "0803 000 0000";
+  const c = COUNTRIES.find((x) => x.code === code);
+  return c?.dial ? `+${c.dial} …` : "+ country code and number";
+}
+
+/** Pre-select the visitor's country once (unless they already picked one). */
+function useDetectedCountry(f) {
+  useEffect(() => {
+    const code = detectCountry();
+    if (code) f.setValues((v) => (v.countryTouched ? v : { ...v, country: code }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+}
+
+function AlreadyRegistered({ email }) {
+  return (
+    <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900">
+      You already have an account.{" "}
+      <Link href={`/login${email ? `?email=${encodeURIComponent(email)}` : ""}`} className="font-semibold underline">
+        Sign in instead
+      </Link>
+    </p>
   );
 }
 
@@ -53,19 +102,31 @@ function useForm(initial) {
   return { values, setValues, errors, error, loading, bind, submit };
 }
 
-export function LoginForm({ next }) {
+export function LoginForm({ next, email: initialEmail = "" }) {
   const router = useRouter();
-  const f = useForm({ email: "", password: "" });
+  const f = useForm({ email: initialEmail, password: "" });
+  const [known, setKnown] = useState(null);
+  useEffect(() => {
+    // Returning on this device: greet them and fill in their email.
+    const last = lastUser();
+    if (last?.email) {
+      setKnown(last);
+      if (!initialEmail) f.setValues((v) => (v.email ? v : { ...v, email: last.email }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const onSubmit = (e) => {
     e.preventDefault();
     f.submit(async (v) => {
       const res = await apiFetch("/api/auth/login", { method: "POST", body: { ...v, next } });
+      rememberUser({ email: v.email, name: res.user?.name });
       router.replace(res.redirect || "/dashboard");
       router.refresh();
     });
   };
   return (
     <form onSubmit={onSubmit} className="space-y-5" noValidate>
+      {known?.name && known.email === f.values.email ? <p className="text-sm font-medium text-slate-700">Welcome back, {known.name.split(" ")[0]}.</p> : null}
       <FormError message={f.error} />
       <Field label="Email address" htmlFor="email" error={f.errors.email}>
         <Input type="email" autoComplete="email" placeholder="you@business.com" required {...f.bind("email")} />
@@ -88,17 +149,20 @@ export function LoginForm({ next }) {
 export function RegisterForm({ referralCode = "" }) {
   const router = useRouter();
   const f = useForm({ businessName: "", ownerName: "", email: "", phone: "", password: "", country: "NG", businessType: "", whatsappOptIn: true });
+  useDetectedCountry(f);
   const onSubmit = (e) => {
     e.preventDefault();
-    f.submit(async (v) => {
-      const res = await apiFetch("/api/auth/register", { method: "POST", body: { ...v, referralCode: referralCode || undefined } });
+    f.submit(async ({ countryTouched, ...v }) => {
+      const res = await apiFetch("/api/auth/register", { method: "POST", body: { ...v, timezone: browserTimezone(), referralCode: referralCode || undefined } });
+      rememberUser({ email: v.email, name: v.ownerName });
       router.replace(res.redirect || "/onboarding");
       router.refresh();
     });
   };
+  const exists = f.errors.email === "Already registered";
   return (
     <form onSubmit={onSubmit} className="space-y-4" noValidate>
-      <FormError message={f.error} />
+      {exists ? <AlreadyRegistered email={f.values.email} /> : <FormError message={f.error} />}
       <Field label="Business name" htmlFor="businessName" error={f.errors.businessName} required>
         <Input placeholder="e.g. Mama Nkechi Supermarket" autoComplete="organization" required {...f.bind("businessName")} />
       </Field>
@@ -107,7 +171,7 @@ export function RegisterForm({ referralCode = "" }) {
           <Input autoComplete="name" required {...f.bind("ownerName")} />
         </Field>
         <Field label="WhatsApp phone number" htmlFor="phone" error={f.errors.phone} hint="For stock, trial and payment alerts" required>
-          <Input type="tel" autoComplete="tel" inputMode="tel" placeholder="0803 000 0000" required {...f.bind("phone")} />
+          <Input type="tel" autoComplete="tel" inputMode="tel" placeholder={phonePlaceholder(f.values.country)} required {...f.bind("phone")} />
         </Field>
       </div>
       <Field label="Email address" htmlFor="email" error={f.errors.email} required>
@@ -115,7 +179,7 @@ export function RegisterForm({ referralCode = "" }) {
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Country" htmlFor="country" error={f.errors.country} required>
-          <Select {...f.bind("country")}>
+          <Select {...f.bind("country")} onChange={(e) => f.setValues((v) => ({ ...v, country: e.target.value, countryTouched: true }))}>
             {COUNTRIES.map((c) => (
               <option key={c.code} value={c.code}>
                 {c.name}
@@ -144,7 +208,7 @@ export function RegisterForm({ referralCode = "" }) {
         description="Low stock, trial reminders and payment updates. You can turn this off in Settings."
       />
       <Button type="submit" className="w-full" size="lg" loading={f.loading}>
-        Start my 7-day free trial
+        Start my 3-day free trial
       </Button>
       <p className="text-center text-xs text-slate-500">No payment required. By continuing you agree to our terms of service.</p>
     </form>
@@ -271,10 +335,12 @@ function SuccessBox({ message, action }) {
 export function GoogleSignupForm({ name, email, referralCode = "" }) {
   const router = useRouter();
   const f = useForm({ ownerName: name || "", businessName: "", phone: "", country: "NG", businessType: "", whatsappOptIn: true });
+  useDetectedCountry(f);
   const onSubmit = (e) => {
     e.preventDefault();
-    f.submit(async (v) => {
-      const res = await apiFetch("/api/auth/google/complete", { method: "POST", body: { ...v, referralCode: referralCode || undefined } });
+    f.submit(async ({ countryTouched, ...v }) => {
+      const res = await apiFetch("/api/auth/google/complete", { method: "POST", body: { ...v, timezone: browserTimezone(), referralCode: referralCode || undefined } });
+      rememberUser({ email, name: v.ownerName });
       router.replace(res.redirect || "/onboarding");
       router.refresh();
     });
@@ -293,12 +359,12 @@ export function GoogleSignupForm({ name, email, referralCode = "" }) {
           <Input autoComplete="name" required {...f.bind("ownerName")} />
         </Field>
         <Field label="WhatsApp phone number" htmlFor="phone" error={f.errors.phone} hint="For stock, trial and payment alerts" required>
-          <Input type="tel" autoComplete="tel" inputMode="tel" placeholder="0803 000 0000" required {...f.bind("phone")} />
+          <Input type="tel" autoComplete="tel" inputMode="tel" placeholder={phonePlaceholder(f.values.country)} required {...f.bind("phone")} />
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Country" htmlFor="country" error={f.errors.country} required>
-          <Select {...f.bind("country")}>
+          <Select {...f.bind("country")} onChange={(e) => f.setValues((v) => ({ ...v, country: e.target.value, countryTouched: true }))}>
             {COUNTRIES.map((c) => (
               <option key={c.code} value={c.code}>
                 {c.name}
@@ -324,7 +390,7 @@ export function GoogleSignupForm({ name, email, referralCode = "" }) {
         description="Low stock, trial reminders and payment updates. You can turn this off in Settings."
       />
       <Button type="submit" className="w-full" size="lg" loading={f.loading}>
-        Start my 7-day free trial
+        Start my 3-day free trial
       </Button>
       <p className="text-center text-xs text-slate-500">No payment required. You'll sign in with Google — no password needed.</p>
     </form>

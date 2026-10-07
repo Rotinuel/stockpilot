@@ -15,6 +15,7 @@ const PaymentSchema = new Schema(
     // true: Paystack subscription (card / direct debit, renews automatically).
     // false: one-off payment for one period (card, transfer, USSD, bank… — renewed manually).
     autoRenew: { type: Boolean, default: true },
+    cycle: { type: String, enum: ["monthly", "annually"], default: "monthly" },
     channel: String,
     gatewayResponse: String,
     failureReason: String,

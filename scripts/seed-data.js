@@ -1,15 +1,16 @@
-// Static seed data (plans, demo catalogue). Prices are illustrative Naira values.
+// Static seed data (plans, demo catalogue). Prices: Naira per month for Nigeria and US dollars per
+// month for other countries; yearly = 10 × monthly unless the Super Admin sets a yearly price.
 
 export const PLANS = [
   {
     code: "trial",
     name: "Free Trial",
-    description: "Try StockPilot free for 7 days. No payment required.",
+    description: "Try StockPilot free for 3 days. No payment required.",
     price: 0,
     currency: "NGN",
     interval: "monthly",
     isTrial: true,
-    durationDays: 7,
+    durationDays: 3,
     isActive: true,
     isPublic: false,
     sortOrder: 0,
@@ -22,6 +23,7 @@ export const PLANS = [
     name: "Starter",
     description: "For small shops getting organised.",
     price: 5000,
+    usdPrice: 9,
     currency: "NGN",
     interval: "monthly",
     isActive: true,
@@ -36,6 +38,7 @@ export const PLANS = [
     name: "Business",
     description: "For growing shops that sell on credit and need profit insight.",
     price: 10000,
+    usdPrice: 19,
     currency: "NGN",
     interval: "monthly",
     isActive: true,
@@ -51,6 +54,7 @@ export const PLANS = [
     name: "Professional",
     description: "For multi-branch businesses that need everything.",
     price: 20000,
+    usdPrice: 39,
     currency: "NGN",
     interval: "monthly",
     isActive: true,

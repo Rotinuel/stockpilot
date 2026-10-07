@@ -9,6 +9,7 @@ import { LogoMark } from "./Logo";
 import NotificationBell from "./NotificationBell";
 import OfflineManager from "@/components/offline/OfflineManager";
 import InstallPrompt, { InstallHelpModal, useInstallApp } from "@/components/offline/InstallApp";
+import { rememberUser } from "@/lib/last-user";
 import { useConfirm } from "@/components/ui/Confirm";
 import { clearOfflineData, listOutbox } from "@/lib/offline/store";
 import Dropdown, { DropdownItem, DropdownSeparator } from "@/components/ui/Dropdown";
@@ -91,6 +92,10 @@ function SidebarContent({ session, permissions, badges, onNavigate }) {
 
 export default function AppShell({ session, permissions, badges, children }) {
   const installApp = useInstallApp();
+  // Remember who uses this device so the sign-in page can greet them next time.
+  useEffect(() => {
+    rememberUser({ email: session.user.email, name: session.user.name });
+  }, [session.user.email, session.user.name]);
   const [installHelp, setInstallHelp] = useState(false);
   const onInstallClick = async () => {
     if (installApp.canPrompt) await installApp.install();

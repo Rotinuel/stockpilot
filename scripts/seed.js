@@ -12,6 +12,7 @@ import { trialWindow, addDays } from "../lib/access.js";
 import { round2, computeCartTotals, settlePayment } from "../lib/money.js";
 import * as M from "../models/index.js";
 import { PLANS, CATEGORIES, PRODUCTS, SUPPLIERS, CUSTOMERS, EXPENSES_MONTHLY } from "./seed-data.js";
+import { applyTrialLengthToAll } from "../services/trial.js";
 
 const RESET = process.argv.includes("--reset");
 const DEMO_PASSWORD = "Demo@12345";
@@ -61,6 +62,12 @@ async function seedPlans() {
   for (const plan of PLANS) {
     // $setOnInsert: never overwrite prices a super admin has changed.
     await M.SubscriptionPlan.updateOne({ code: plan.code }, { $setOnInsert: plan }, { upsert: true });
+    // Fill in USD prices on plans created before global pricing existed (only when missing/0).
+    if (plan.usdPrice) {
+      await M.SubscriptionPlan.updateOne({ code: plan.code, $or: [{ usdPrice: { $exists: false } }, { usdPrice: 0 }] }, { $set: { usdPrice: plan.usdPrice } });
+    }
+    // The trial length is a business rule (TRIAL_DAYS); keep the trial plan's display in sync.
+    if (plan.isTrial) await M.SubscriptionPlan.updateOne({ code: plan.code }, { $set: { durationDays: plan.durationDays, description: plan.description } });
   }
   const plans = await M.SubscriptionPlan.find({}).lean();
   console.log(`✓ Plans: ${plans.map((p) => `${p.name} (₦${p.price.toLocaleString()})`).join(", ")}`);
@@ -498,11 +505,11 @@ async function createTrialShop(plans, passwordHash) {
   const now = new Date();
   const tenantId = oid();
   const ownerId = oid();
-  const started = addDays(now, -4); // → 3 days left, shows the "warning" countdown
+  const started = addDays(now, -1); // → 2 days left of the 3-day trial, shows the countdown
   const { trialStartedAt, trialEndsAt } = trialWindow(started);
   const loc = { _id: oid(), tenantId, name: "Main Store", isDefault: true, isActive: true, address: "Shop 14, Ariaria Market, Aba" };
   await insert(M.Tenant, [
-    build(M.Tenant, { _id: tenantId, businessName: "Chuks Provision Store", slug, ownerId, email: "trial@stockpilot.ng", phone: "+2348039990000", whatsappNumber: "+2348039990000", country: "NG", currency: "NGN", businessType: "Provision store", address: loc.address, subscriptionPlan: plans.trial._id, subscriptionPlanCode: "trial", subscriptionStatus: "trialing", trialStartedAt, trialEndsAt, onboarding: { completed: true, step: 6 }, remindersSent: ["trial-5"], createdAt: started, updatedAt: now }),
+    build(M.Tenant, { _id: tenantId, businessName: "Chuks Provision Store", slug, ownerId, email: "trial@stockpilot.ng", phone: "+2348039990000", whatsappNumber: "+2348039990000", country: "NG", currency: "NGN", businessType: "Provision store", address: loc.address, subscriptionPlan: plans.trial._id, subscriptionPlanCode: "trial", subscriptionStatus: "trialing", trialStartedAt, trialEndsAt, onboarding: { completed: true, step: 6 }, remindersSent: [], createdAt: started, updatedAt: now }),
   ]);
   await insert(M.User, [build(M.User, { _id: ownerId, tenantId, name: "Chukwudi Eze", email: "trial@stockpilot.ng", password: passwordHash, role: "owner", emailVerified: false, isActive: true, defaultLocationId: loc._id, createdAt: started, updatedAt: now })]);
   await insert(M.Location, [build(M.Location, { ...loc, createdAt: started, updatedAt: started })]);
@@ -572,6 +579,8 @@ async function main() {
     }
   }
   await repairDemoLogins(passwordHash);
+  const trials = await applyTrialLengthToAll();
+  if (trials.updated) console.log(`✓ Shortened ${trials.updated} existing 7-day trial(s) to 3 days`);
   await linkDemoReferral();
   console.log("Done.");
 }

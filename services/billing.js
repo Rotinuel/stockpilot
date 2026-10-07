@@ -17,7 +17,8 @@ import { appUrl } from "../lib/request.js";
 import { addDays } from "../lib/access.js";
 import { limitViolations, limitLabel } from "../lib/plans.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
-import { getPlanById, getPlanByCode, getPaidPlans, getEffectivePlan, invalidatePlanCache } from "./plans.js";
+import { getPlanById, getPlanByCode, getPaidPlans, getEffectivePlan, invalidatePlanCache, getAllPlans } from "./plans.js";
+import { planPrice, tenantBillingCurrency, normalizeCycle, storedPaystackPlanCode, paystackPlanKey, matchPaystackPlanCode, isSoldIn, CYCLE_LABEL } from "../lib/pricing.js";
 import { getPlatformSettings } from "./platform.js";
 import { getUsage } from "./limits.js";
 import { logAudit } from "./audit.js";
@@ -59,34 +60,58 @@ export async function getBillingOverview(ctx) {
 }
 
 // ── Paystack plan sync ──────────────────────────────────────
-export async function ensurePaystackPlan(plan) {
-  if (plan.paystackPlanCode) return plan.paystackPlanCode;
+/** Paystack plan for a plan/currency/cycle (created on first use). */
+export async function ensurePaystackPlan(plan, currency = "NGN", cycle = "monthly") {
+  cycle = normalizeCycle(cycle);
+  const existing = storedPaystackPlanCode(plan, currency, cycle);
+  if (existing) return existing;
+  const amount = planPrice(plan, currency, cycle);
+  if (!(amount > 0)) throw badRequest(`The ${plan.name} plan isn't available for ${currency} ${cycle} billing.`);
   const created = await paystack.createPlan({
-    name: `StockPilot ${plan.name}`,
-    amount: toSubunit(plan.price),
-    interval: plan.interval,
-    currency: plan.currency || "NGN",
+    name: `StockPilot ${plan.name} (${cycle === "annually" ? "Yearly" : "Monthly"}, ${currency})`,
+    amount: toSubunit(amount),
+    interval: cycle === "annually" ? "annually" : plan.interval || "monthly",
+    currency,
     description: plan.description,
   });
-  await SubscriptionPlan.updateOne({ _id: plan._id }, { $set: { paystackPlanCode: created.plan_code } });
+  await SubscriptionPlan.updateOne({ _id: plan._id }, { $set: { [`paystackPlanCodes.${paystackPlanKey(currency, cycle)}`]: created.plan_code } });
   invalidatePlanCache();
   return created.plan_code;
 }
 
+/** Push price/name changes to every Paystack plan already created for this plan. */
 export async function syncPlanToPaystack(planId) {
   const plan = await SubscriptionPlan.findById(planId).lean();
   if (!plan) throw notFound("Plan not found.");
   if (plan.isTrial || plan.price <= 0) throw badRequest("Free/trial plans are not billed through Paystack.");
-  if (!plan.paystackPlanCode) return { planCode: await ensurePaystackPlan(plan), created: true };
-  await paystack.updatePlan(plan.paystackPlanCode, {
-    name: `StockPilot ${plan.name}`,
-    amount: toSubunit(plan.price),
-    interval: plan.interval,
-    currency: plan.currency || "NGN",
-    description: plan.description,
-    updateExisting: false, // existing subscribers keep their price until they change plan
-  });
-  return { planCode: plan.paystackPlanCode, updated: true };
+  const results = [];
+  for (const currency of ["NGN", "USD"]) {
+    for (const cycle of ["monthly", "annually"]) {
+      const code = storedPaystackPlanCode(plan, currency, cycle);
+      const amount = planPrice(plan, currency, cycle);
+      if (!(amount > 0)) continue;
+      if (!code) {
+        if (currency === "NGN" && cycle === "monthly") results.push({ key: "NGN_monthly", planCode: await ensurePaystackPlan(plan, currency, cycle), created: true });
+        continue; // other variants are created on first checkout
+      }
+      await paystack.updatePlan(code, {
+        name: `StockPilot ${plan.name} (${cycle === "annually" ? "Yearly" : "Monthly"}, ${currency})`,
+        amount: toSubunit(amount),
+        interval: cycle === "annually" ? "annually" : plan.interval || "monthly",
+        currency,
+        description: plan.description,
+        updateExisting: false, // existing subscribers keep their price until they change plan
+      });
+      results.push({ key: paystackPlanKey(currency, cycle), planCode: code, updated: true });
+    }
+  }
+  return { planCode: storedPaystackPlanCode(plan, "NGN", "monthly"), results, updated: true };
+}
+
+/** Find the plan (and currency/cycle) a Paystack plan code belongs to. */
+async function planFromPaystackCode(code) {
+  if (!code) return null;
+  return matchPaystackPlanCode(await getAllPlans({ includeInactive: true }), code);
 }
 
 // ── Checkout ────────────────────────────────────────────────
@@ -98,16 +123,21 @@ async function ownerOf(tenant) {
  * Start a Paystack checkout for `planId`. Returns the hosted authorization URL.
  * @param {'subscription'|'upgrade'|'renewal'} [purposeHint]
  */
-export async function startCheckout(ctx, planId, request, purposeHint, { autoRenew = true } = {}) {
+export async function startCheckout(ctx, planId, request, purposeHint, { autoRenew = true, cycle = "monthly" } = {}) {
+  cycle = normalizeCycle(cycle);
   const plan = await getPlanById(planId);
   if (!plan || !plan.isActive || plan.isTrial || plan.price <= 0) throw badRequest("Please choose a valid paid plan.");
   const tenant = await Tenant.findById(ctx.tenantId).lean();
+  const currency = tenantBillingCurrency(tenant);
+  if (!isSoldIn(plan, currency, cycle)) throw badRequest(`The ${plan.name} plan isn't available in ${currency} yet. Please contact support.`);
+  const amount = planPrice(plan, currency, cycle);
   const access = ctx.access;
 
   const isCurrentlyPaid = ["active", "cancelled", "past_due"].includes(access?.state) && tenant.subscriptionStatus !== "trialing";
   // Same plan while it renews automatically → nothing to pay. (Manual payers can renew early;
   // the new period starts when the current one ends.)
-  if (isCurrentlyPaid && String(tenant.subscriptionPlan) === String(plan._id) && access.state === "active" && tenant.paystackSubscriptionCode) {
+  const sameCycle = normalizeCycle(tenant.billingCycle) === cycle;
+  if (isCurrentlyPaid && String(tenant.subscriptionPlan) === String(plan._id) && access.state === "active" && tenant.paystackSubscriptionCode && sameCycle) {
     throw conflict(`Your ${plan.name} plan already renews automatically.`);
   }
 
@@ -121,7 +151,7 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
   if (!owner?.email) throw badRequest("The business owner's email is missing.");
   // Recurring checkout (with a Paystack plan) only offers card and direct debit; a one-off
   // payment offers every channel enabled on the Paystack account (transfer, USSD, card…).
-  const planCode = autoRenew ? await ensurePaystackPlan(plan) : null;
+  const planCode = autoRenew ? await ensurePaystackPlan(plan, currency, cycle) : null;
   const reference = randomReference("SP");
 
   const payment = await Payment.create({
@@ -129,11 +159,12 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
     planId: plan._id,
     planCode: plan.code,
     reference,
-    amount: round2(plan.price),
-    currency: plan.currency || "NGN",
+    amount: round2(amount),
+    currency,
     status: "pending",
     purpose,
     autoRenew,
+    cycle,
     initiatedBy: ctx.userId,
     customerEmail: owner.email,
   });
@@ -142,17 +173,18 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
   try {
     init = await paystack.initializeTransaction({
       email: owner.email,
-      amount: toSubunit(plan.price),
+      amount: toSubunit(amount),
       reference,
       callbackUrl: appUrl("/billing/callback"),
       plan: planCode || undefined,
-      currency: plan.currency || "NGN",
+      currency,
       metadata: {
         tenantId: String(tenant._id),
         planId: String(plan._id),
         paymentId: String(payment._id),
         purpose,
         autoRenew,
+        cycle,
         custom_fields: [
           { display_name: "Business", variable_name: "business", value: tenant.businessName },
           { display_name: "Plan", variable_name: "plan", value: plan.name },
@@ -161,10 +193,13 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
     });
   } catch (err) {
     await Payment.updateOne({ _id: payment._id }, { $set: { status: "failed", failureReason: err?.message?.slice(0, 300) } });
+    if (currency !== "NGN" && /currency/i.test(err?.message || "")) {
+      throw badRequest(`Payments in ${currency} aren't switched on for this Paystack account yet. Please contact support.`);
+    }
     throw err;
   }
 
-  await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount: plan.price, purpose, reference, autoRenew }, request });
+  await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount, currency, cycle, purpose, reference, autoRenew }, request });
   return { authorizationUrl: init.authorization_url, accessCode: init.access_code, reference };
 }
 
@@ -244,14 +279,17 @@ async function applySuccessfulPayment(payment, tx, via) {
   ).lean();
   if (!marked) return { alreadyProcessed: true }; // processed concurrently
 
-  const plan = (await getPlanById(payment.planId)) || (tx.plan?.plan_code ? await SubscriptionPlan.findOne({ paystackPlanCode: tx.plan.plan_code }).lean() : null);
+  const fromCode = await planFromPaystackCode(tx.plan?.plan_code);
+  const plan = (await getPlanById(payment.planId)) || fromCode?.plan || null;
+  const cycle = normalizeCycle(payment.cycle || fromCode?.cycle);
   const tenant = await Tenant.findById(payment.tenantId).select("+paystackEmailToken +paystackAuthorizationCode").lean();
   if (!plan || !tenant) return { alreadyProcessed: false };
 
   // Upgrading from another paid plan: stop the old recurring subscription.
   const autoRenew = payment.autoRenew !== false;
   const previousCode = tenant.paystackSubscriptionCode;
-  const replacesOld = previousCode && (String(tenant.subscriptionPlan) !== String(plan._id) || !autoRenew);
+  const cycleChanged = normalizeCycle(tenant.billingCycle) !== cycle;
+  const replacesOld = previousCode && (String(tenant.subscriptionPlan) !== String(plan._id) || !autoRenew || cycleChanged);
   if (replacesOld && tenant.paystackEmailToken) {
     try {
       await paystack.disableSubscription({ code: previousCode, token: tenant.paystackEmailToken });
@@ -261,7 +299,7 @@ async function applySuccessfulPayment(payment, tx, via) {
   }
 
   const start = payment.purpose === "renewal" && tenant.subscriptionEndDate && new Date(tenant.subscriptionEndDate) > now ? new Date(tenant.subscriptionEndDate) : now;
-  const end = addInterval(start, plan.interval);
+  const end = addInterval(start, cycle === "annually" ? "annually" : plan.interval);
 
   await Subscription.updateMany(
     { tenantId: tenant._id, status: { $in: ["trialing", "active", "past_due", "cancelled"] } },
@@ -274,8 +312,8 @@ async function applySuccessfulPayment(payment, tx, via) {
     status: "active",
     amount: payment.amount,
     currency: payment.currency,
-    interval: plan.interval,
-    paystackPlanCode: plan.paystackPlanCode,
+    interval: cycle === "annually" ? "annually" : plan.interval,
+    paystackPlanCode: storedPaystackPlanCode(plan, payment.currency || "NGN", cycle),
     paystackCustomerCode: tx.customer?.customer_code,
     currentPeriodStart: start,
     currentPeriodEnd: end,
@@ -293,6 +331,8 @@ async function applySuccessfulPayment(payment, tx, via) {
     nextBillingDate: end,
     cancelAtPeriodEnd: false,
     billingMode: autoRenew ? "auto" : "manual",
+    billingCycle: cycle,
+    billingCurrency: payment.currency === "USD" ? "USD" : "NGN",
     cardLast4: tx.authorization?.last4 || tenant.cardLast4,
     cardBrand: tx.authorization?.brand || tenant.cardBrand,
   };
@@ -372,21 +412,26 @@ export async function resumeSubscription(ctx, request) {
  * Upgrades are charged immediately (new billing period starts today).
  * Downgrades take effect at the end of the current paid period.
  */
-export async function changePlan(ctx, planId, request, { autoRenew = true } = {}) {
+export async function changePlan(ctx, planId, request, { autoRenew = true, cycle } = {}) {
   const target = await getPlanById(planId);
   if (!target || !target.isActive || target.isTrial) throw badRequest("Please choose a valid plan.");
   const tenant = await Tenant.findById(ctx.tenantId).select("+paystackEmailToken +paystackAuthorizationCode").lean();
   const current = await getEffectivePlan(tenant);
   const paidAndActive = ["active", "past_due", "cancelled"].includes(ctx.access?.state) && tenant.subscriptionStatus !== "trialing";
+  const currentCycle = normalizeCycle(tenant.billingCycle);
+  cycle = normalizeCycle(cycle || currentCycle);
+  const opts = { autoRenew, cycle };
 
-  if (!paidAndActive) return { action: "checkout", ...(await startCheckout(ctx, planId, request, undefined, { autoRenew })) };
+  if (!paidAndActive) return { action: "checkout", ...(await startCheckout(ctx, planId, request, undefined, opts)) };
   if (String(current._id) === String(target._id)) {
+    // Monthly ↔ yearly on the same plan: the new period starts when the current one ends.
+    if (cycle !== currentCycle) return { action: "checkout", ...(await startCheckout(ctx, planId, request, "renewal", opts)) };
     if (tenant.subscriptionStatus === "cancelled" && tenant.paystackSubscriptionCode) return { action: "resume", ...(await resumeSubscription(ctx, request)) };
     // Manual payers renew (or switch to automatic renewal) by paying for the next period.
-    if (!tenant.paystackSubscriptionCode || tenant.subscriptionStatus !== "active") return { action: "checkout", ...(await startCheckout(ctx, planId, request, "renewal", { autoRenew })) };
+    if (!tenant.paystackSubscriptionCode || tenant.subscriptionStatus !== "active") return { action: "checkout", ...(await startCheckout(ctx, planId, request, "renewal", opts)) };
     throw conflict(`You are already on the ${target.name} plan.`);
   }
-  if (target.price > current.price) return { action: "checkout", ...(await startCheckout(ctx, planId, request, "upgrade", { autoRenew })) };
+  if (target.price > current.price) return { action: "checkout", ...(await startCheckout(ctx, planId, request, "upgrade", opts)) };
 
   // Downgrade — make sure current usage fits the smaller plan.
   const usage = await getUsage(ctx.tenantId, { timezone: ctx.timezone });
@@ -399,7 +444,7 @@ export async function changePlan(ctx, planId, request, { autoRenew = true } = {}
   const effectiveAt = tenant.subscriptionEndDate ? new Date(tenant.subscriptionEndDate) : new Date();
   let scheduledOnPaystack = false;
   if (isPaystackConfigured() && tenant.billingMode !== "manual") {
-    const planCode = await ensurePaystackPlan(target);
+    const planCode = await ensurePaystackPlan(target, tenantBillingCurrency(tenant), currentCycle);
     if (tenant.paystackSubscriptionCode && tenant.paystackEmailToken) {
       await paystack.disableSubscription({ code: tenant.paystackSubscriptionCode, token: tenant.paystackEmailToken });
     }
@@ -481,7 +526,8 @@ async function handleChargeSuccess(data) {
   if (!tenant) return { ignored: "tenant_not_found" };
   const tx = await paystack.verifyTransaction(data.reference); // never trust the webhook body alone
   if (tx.status !== "success") return { ignored: `status_${tx.status}` };
-  const plan = (tx.plan?.plan_code && (await SubscriptionPlan.findOne({ paystackPlanCode: tx.plan.plan_code }).lean())) || (await getEffectivePlan(tenant));
+  const fromCode = await planFromPaystackCode(tx.plan?.plan_code);
+  const plan = fromCode?.plan || (await getEffectivePlan(tenant));
   try {
     const payment = await Payment.create({
       tenantId: tenant._id,
@@ -492,6 +538,7 @@ async function handleChargeSuccess(data) {
       currency: tx.currency || "NGN",
       status: "pending",
       purpose: "renewal",
+      cycle: fromCode?.cycle || normalizeCycle(tenant.billingCycle),
       customerEmail: tx.customer?.email,
     });
     return verifyAndApply(payment.reference, { via: "webhook" });
@@ -504,7 +551,7 @@ async function handleChargeSuccess(data) {
 async function handleSubscriptionCreate(data) {
   const tenant = await findTenantForPaystack(data);
   if (!tenant) return { ignored: "tenant_not_found" };
-  const plan = data.plan?.plan_code ? await SubscriptionPlan.findOne({ paystackPlanCode: data.plan.plan_code }).lean() : null;
+  const plan = (await planFromPaystackCode(data.plan?.plan_code))?.plan || null;
   const $set = {
     paystackSubscriptionCode: data.subscription_code,
     paystackEmailToken: data.email_token,

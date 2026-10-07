@@ -11,6 +11,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui/Card";
 import Badge, { STATUS_TONES } from "@/components/ui/Badge";
 import { PlanCards, SubscriptionControls } from "@/components/billing/BillingClient";
 import AccessDenied from "@/components/layout/AccessDenied";
+import { tenantBillingCurrency, normalizeCycle, planPrice, CYCLE_LABEL } from "@/lib/pricing";
 
 export const metadata = { title: "Billing" };
 
@@ -25,6 +26,9 @@ export default async function BillingPage() {
   const isTrial = tenant.subscriptionStatus === "trialing";
   const isPaidActive = ["active", "past_due", "cancelled"].includes(access.state);
   const manual = tenant.billingMode === "manual" && !isTrial;
+  const currency = tenantBillingCurrency(tenant);
+  const cycle = normalizeCycle(tenant.billingCycle);
+  const planForClient = (p) => (p ? { _id: String(p._id), name: p.name, price: p.price, yearlyPrice: p.yearlyPrice, usdPrice: p.usdPrice, usdYearlyPrice: p.usdYearlyPrice, interval: p.interval, isTrial: Boolean(p.isTrial) } : null);
   const statusLabel = access.state === "trial_expired" ? "Trial expired" : SUBSCRIPTION_STATUS_LABELS[access.effectiveStatus] || access.effectiveStatus;
   const usageRows = [
     { key: "products", label: "Products", value: usage.products },
@@ -75,7 +79,9 @@ export default async function BillingPage() {
                 hasPending={Boolean(pendingPlan)}
                 accessUntil={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null}
                 billingMode={manual ? "manual" : "auto"}
-                currentPlan={currentPlan && !currentPlan.isTrial ? { _id: String(currentPlan._id), name: currentPlan.name, price: currentPlan.price, currency: currentPlan.currency, interval: currentPlan.interval, isTrial: false } : null}
+                currentPlan={currentPlan && !currentPlan.isTrial ? planForClient(currentPlan) : null}
+                currency={currency}
+                cycle={cycle}
               />
             }
           />
@@ -83,7 +89,7 @@ export default async function BillingPage() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-2xl font-bold text-slate-900">{currentPlan?.name}</p>
-                <p className="text-sm text-slate-500">{isTrial ? "7-day free trial — all your data is kept when you subscribe" : currentPlan?.price ? `${formatMoney(currentPlan.price, currentPlan.currency)} per ${currentPlan.interval}` : ""}</p>
+                <p className="text-sm text-slate-500">{isTrial ? "3-day free trial — all your data is kept when you subscribe" : currentPlan?.price ? `${formatMoney(planPrice(currentPlan, currency, cycle), currency)} per ${CYCLE_LABEL[cycle]} · billed ${cycle === "annually" ? "yearly" : "monthly"}` : ""}</p>
               </div>
               <Badge tone={STATUS_TONES[access.effectiveStatus] || "gray"} dot>
                 {statusLabel}
@@ -137,7 +143,7 @@ export default async function BillingPage() {
 
       <h2 className="mt-10 mb-4 text-lg font-semibold text-slate-900">{isPaidActive ? "Change plan" : "Choose a plan"}</h2>
       <PlanCards
-        plans={plans}
+        plans={plans.map(planForClient).map((p, i) => ({ ...p, description: plans[i].description, featureList: plans[i].featureList || [], highlight: Boolean(plans[i].highlight) }))}
         currentPlanId={tenant.subscriptionPlan}
         currentPrice={currentPlan?.price || 0}
         isPaidActive={isPaidActive}
@@ -145,6 +151,8 @@ export default async function BillingPage() {
         paystackConfigured={data.paystackConfigured}
         periodEnd={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null}
         billingMode={manual ? "manual" : "auto"}
+        currency={currency}
+        currentCycle={cycle}
       />
       <p className="mt-3 text-xs text-slate-500">Payments are processed securely by Paystack. Choose <strong>Pay once</strong> to pay by bank transfer, USSD or card, or <strong>Automatic renewal</strong> to be charged by card/direct debit each period. Upgrades start immediately; downgrades apply at the end of your current billing period.</p>
 

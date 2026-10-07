@@ -31,7 +31,7 @@ E2E_BASE_URL=http://localhost:3000 bun run test:e2e
 | Sales | cart/tax/discount/profit/settlement maths | stock reduction + movement, atomic failure, credit sale gating, cancel reversal, idempotent `clientRequestId` | cashier sale total |
 | Purchases | — | stock increase, cost price update, supplier balance, FIFO supplier payment | — |
 | Subscription lifecycle | trial/active/past_due/grace/cancelled/expired/suspended rules | checkout → verified webhook → active; failure → past_due + grace | trial state from `/api/auth/me` |
-| Trial expiration | exactly 7 days, reminder schedule (5/3/1) | cron marks expired, data preserved, read-only | — |
+| Trial expiration | exactly 3 days, reminder schedule (2/1) | cron marks expired, data preserved, read-only | — |
 | Paystack webhook | HMAC verification, tampering, event keys | idempotent processing, amount verification, cross-tenant reference rejected | invalid signature → 401 |
 | Plan limits | `withinLimit`, messages, downgrade violations, report feature gating | 3rd product on a 2-product plan → `PLAN_LIMIT` with exact message | trial plan expenses → `PLAN_FEATURE` |
 | Cron security | — | — | missing secret → 401 |

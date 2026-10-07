@@ -79,12 +79,12 @@ describe.skipIf(!URI)("StockPilot services (MongoDB)", () => {
   });
 
   // ── Registration & trial ─────────────────────────────────
-  test("registration creates owner + tenant + default location + exactly 7-day trial", async () => {
+  test("registration creates owner + tenant + default location + exactly 3-day trial", async () => {
     expect(A.user.role).toBe("owner");
     expect(String(A.user.tenantId)).toBe(String(A.tenant._id));
     expect(A.tenant.subscriptionStatus).toBe("trialing");
     expect(A.tenant.subscriptionPlanCode).toBe("trial");
-    expect(new Date(A.tenant.trialEndsAt) - new Date(A.tenant.trialStartedAt)).toBe(7 * 24 * 3600 * 1000);
+    expect(new Date(A.tenant.trialEndsAt) - new Date(A.tenant.trialStartedAt)).toBe(3 * 24 * 3600 * 1000);
     expect(await M.Location.countDocuments({ tenantId: A.tenant._id, isDefault: true })).toBe(1);
   });
 

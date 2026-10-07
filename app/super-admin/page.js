@@ -27,8 +27,15 @@ export default async function SuperAdminHome() {
         <StatCard label="On trial" value={s.trialBusinesses} icon={Clock} tone="blue" href="/super-admin/tenants?subscription=trialing" />
         <StatCard label="Expired trials" value={s.expiredTrials} icon={TimerOff} tone="yellow" href="/super-admin/tenants?subscription=expired" />
         <StatCard label="Active subscriptions" value={s.activeSubscriptions} hint={`${s.pastDue} past due · ${s.cancelled} cancelled`} icon={Repeat} tone="purple" href="/super-admin/subscriptions" />
-        <StatCard label="MRR" value={formatMoney(s.mrr, "NGN")} hint={`ARR ${formatMoney(s.arr, "NGN")}`} icon={Banknote} tone="green" />
-        <StatCard label="Total revenue" value={formatMoney(s.totalRevenue, "NGN")} hint={`${formatMoney(s.revenue30, "NGN")} last 30 days`} icon={Wallet} tone="blue" href="/super-admin/payments" />
+        <StatCard label="MRR" value={formatMoney(s.mrr, "NGN")} hint={`ARR ${formatMoney(s.arr, "NGN")}${s.mrrUsd ? ` · + ${formatMoney(s.mrrUsd, "USD")}/mo in USD` : ""}`} icon={Banknote} tone="green" />
+        <StatCard
+          label="Total revenue"
+          value={formatMoney(s.totalRevenue, "NGN")}
+          hint={`${formatMoney(s.revenue30, "NGN")} last 30 days${s.revenueUsd ? ` · USD ${formatMoney(s.revenueUsd, "USD")} (${formatMoney(s.revenue30Usd, "USD")} last 30 days)` : ""}`}
+          icon={Wallet}
+          tone="blue"
+          href="/super-admin/payments"
+        />
         <StatCard label="Failed payments (30d)" value={s.failedPayments30} icon={CircleX} tone="red" href="/super-admin/payments?status=failed" />
         <StatCard label="New registrations (30d)" value={s.newRegistrations30} hint={`${s.newToday} today`} icon={UserPlus} tone="brand" />
         <StatCard label="Cancellations (30d)" value={s.cancellations30} hint={`Churn ${s.churnRate}%`} icon={TrendingDown} tone="gray" />

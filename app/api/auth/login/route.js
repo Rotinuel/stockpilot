@@ -26,7 +26,7 @@ export const POST = withApi(
       throw err;
     }
     const { user, token } = result;
-    const res = NextResponse.json({ ok: true, redirect: safeNext(body.next, user.role) });
+    const res = NextResponse.json({ ok: true, redirect: safeNext(body.next, user.role), user: { name: user.name } });
     return setSessionCookie(res, token);
   },
   { auth: false },

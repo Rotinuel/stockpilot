@@ -34,7 +34,7 @@ StockPilot is a multi-tenant SaaS inventory, POS and business-management platfor
 **For businesses (tenants)**
 
 - Email/password **or Google** sign-in and sign-up.
-- Registration → business workspace, owner account, default location and a **7-day free trial** (no card needed), then a 6-step onboarding wizard (skippable steps).
+- Registration → business workspace, owner account, default location and a **3-day free trial** (no card needed), then a 6-step onboarding wizard (skippable steps).
 - **Products**: SKU (auto-generated if blank), barcode, category, brand, cost/selling price, units (piece, pack, carton, bottle, kg, g, litre, metre…), low-stock level, supplier, image, status. Search, filter, sort, server-side pagination, **CSV import/export**.
 - **Inventory**: per-location stock, immutable movement ledger (opening stock, purchase, sale, adjustment, return, damage, transfer) with before/after quantities, reason and user. Stock is never changed without a movement.
 - **Low-stock**: dashboard widget, sidebar badge, dedicated page with suggested reorder quantities, optional notifications.
@@ -100,7 +100,7 @@ See `.env.example` for the full, commented list.
 | `MONGODB_URI` | ✅ | MongoDB connection string |
 | `JWT_SECRET` | ✅ | ≥32 random characters; signs session tokens |
 | `NEXT_PUBLIC_APP_URL` | ✅ | Public base URL (links in emails, Paystack callback, sitemap) |
-| `SESSION_DAYS` | | Session lifetime (default 7) |
+| `SESSION_DAYS` | | How long people stay signed in on a device (default 30). The session is renewed automatically while they keep using the app. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | optional | Enables “Continue with Google” sign-in and sign-up |
 | `GOOGLE_REDIRECT_URI` | optional | Override the OAuth callback (default `NEXT_PUBLIC_APP_URL/api/auth/google/callback`) |
 | `PAYSTACK_SECRET_KEY` | for billing | Paystack secret key (server only) |
@@ -196,6 +196,14 @@ Every business gets a personal link on **Refer & earn** (owners and admins), e.g
 - Super admins can **void** a suspicious referral (unpaid commission is cancelled; free days already given are not taken back), or switch the programme off.
 - Demo data: the trial shop "Chuks Provision Store" joined with Mama Nkechi Supermarket's code `MAMADEMO`. Log in as the trial shop, subscribe with Paystack's test card, and the supermarket earns its reward.
 
+## Plans, yearly billing & customers worldwide
+
+- **Free trial:** 3 days, no card needed. Reminders go out when 2 days and 1 day are left.
+- **Monthly or yearly:** every paid plan can be paid monthly or yearly. Yearly defaults to **10 × the monthly price (2 months free)**; the Super Admin can set a different yearly price per plan in **Plans & pricing**. Customers switch between monthly and yearly from **Billing** (the new period starts when the current one ends).
+- **Global:** sign-up offers ~75 countries (the country is pre-selected from the browser), each with its own selling currency, phone format and time zone. **Businesses in Nigeria pay in Naira; everyone else pays in US dollars** — default USD prices are $9 / $19 / $39 a month (edit in Super Admin). The pricing page shows ₦ or $ based on the visitor's country (from Vercel/Cloudflare geo headers when available) and can be switched.
+- **USD payments go through the same Paystack account.** Ask Paystack to enable **USD / international card payments** on your live account first; until then USD checkouts show a friendly "not switched on yet" message.
+- **Stay signed in:** sessions last 30 days (`SESSION_DAYS`) and renew automatically while the app is used, so regular users are never logged out. Signed-in visitors to the home page go straight to their dashboard, and the sign-in page remembers the last person who used the device.
+
 ## Paystack setup
 
 1. Create a Paystack account → **Settings → API Keys & Webhooks**.
@@ -234,7 +242,7 @@ The demo supermarket (“Mama Nkechi Supermarket”, Surulere, Lagos) has ~34 Ni
 - Run `bun run seed` again — every run resets all demo passwords to `Demo@12345`, clears lockouts and re-creates the trial owner if it's missing. `bun run seed:reset` rebuilds both demo businesses from scratch.
 - Five wrong passwords lock an account for 15 minutes (the seed clears this). Only *failed* sign-ins count towards the per-IP limit, so switching between demo roles is never blocked.
 - You can open `/login` while signed in to switch accounts; it shows who you're currently signed in as.
-- The trial shop's 7-day trial starts 4 days before the seed runs. If you seeded more than 3 days ago it will have expired: you can still sign in (read-only) — re-run `bun run seed:reset` to restart it.
+- The trial shop's 3-day trial starts 1 day before the seed runs (2 days left). If you seeded more than 2 days ago it will have expired: you can still sign in (read-only) — run `bun run seed:reset` to start it again.
 
 > Change or remove the demo accounts before going live (`bun run seed:reset` only touches the demo businesses; delete them from the super admin panel or the database for production).
 

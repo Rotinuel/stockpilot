@@ -3,7 +3,8 @@
 // early; authoritative checks (user active, role, tenant, subscription) are
 // done again server-side in every page (lib/session.js) and API (lib/api.js).
 import { NextResponse } from "next/server";
-import { verifySessionToken } from "./lib/auth/jwt.js";
+import { verifySessionToken, signSessionToken } from "./lib/auth/jwt.js";
+import { sessionCookieOptions } from "./lib/auth/cookies.js";
 import { SESSION_COOKIE } from "./lib/constants.js";
 import { REFERRAL_COOKIE, REFERRAL_COOKIE_DAYS, normalizeReferralCode } from "./lib/referrals.js";
 
@@ -57,12 +58,14 @@ export async function proxy(request) {
     return NextResponse.redirect(new URL("/super-admin", request.url));
   }
 
-  if (session && AUTH_PAGES.some((p) => matches(pathname, p))) {
-    return NextResponse.redirect(new URL(session.role === "super_admin" ? "/super-admin" : "/dashboard", request.url));
+  // Signed-in people go straight to their workspace from the home page and sign-up pages.
+  if (session && (pathname === "/" || AUTH_PAGES.some((p) => matches(pathname, p)))) {
+    return withRenewedSession(NextResponse.redirect(new URL(session.role === "super_admin" ? "/super-admin" : "/dashboard", request.url)), session);
   }
 
   const res = NextResponse.next();
   if (isAppArea || isSuperArea) res.headers.set("Cache-Control", "private, no-store");
+  if (session) await withRenewedSession(res, session);
   // Remember a referral link (?ref=CODE) for 30 days so it still counts if the visitor signs up later.
   const ref = !session ? normalizeReferralCode(request.nextUrl.searchParams.get("ref")) : null;
   if (ref) {
@@ -74,6 +77,21 @@ export async function proxy(request) {
       secure: process.env.NODE_ENV === "production",
     });
   }
+  return res;
+}
+
+// "Stay signed in": every visit at least 12 hours after the token was issued gets a fresh
+// SESSION_DAYS (default 30) token, so people who use the app regularly are never logged out.
+// (Revocation still works: the server re-checks the user's tokenVersion on every request.)
+const RENEW_AFTER_SECONDS = 12 * 60 * 60;
+async function withRenewedSession(res, session) {
+  try {
+    const age = Math.floor(Date.now() / 1000) - Number(session.iat || 0);
+    if (age >= RENEW_AFTER_SECONDS && session.sub) {
+      const token = await signSessionToken({ sub: session.sub, tid: session.tid, role: session.role, tv: session.tv });
+      res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
+    }
+  } catch {}
   return res;
 }
 

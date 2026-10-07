@@ -32,7 +32,7 @@ export default async function LoginPage({ searchParams }) {
       ) : null}
       <AuthErrorNotice code={typeof sp?.error === "string" ? sp.error : null} />
       {isGoogleConfigured() ? <GoogleButton mode="login" next={next} /> : null}
-      <LoginForm next={next} />
+      <LoginForm next={next} email={typeof sp?.email === "string" ? sp.email.slice(0, 160) : ""} />
       <p className="mt-8 text-center text-sm text-slate-500">
         New to StockPilot?{" "}
         <Link href="/register" className="font-semibold text-brand-600 hover:text-brand-700">

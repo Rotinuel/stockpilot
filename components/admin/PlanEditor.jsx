@@ -14,6 +14,9 @@ const EMPTY = {
   name: "",
   description: "",
   price: "0",
+  yearlyPrice: "",
+  usdPrice: "",
+  usdYearlyPrice: "",
   currency: "NGN",
   interval: "monthly",
   isTrial: false,
@@ -33,6 +36,9 @@ function toForm(plan) {
     ...EMPTY,
     ...plan,
     price: String(plan.price),
+    yearlyPrice: plan.yearlyPrice ? String(plan.yearlyPrice) : "",
+    usdPrice: plan.usdPrice ? String(plan.usdPrice) : "",
+    usdYearlyPrice: plan.usdYearlyPrice ? String(plan.usdYearlyPrice) : "",
     durationDays: String(plan.durationDays ?? 30),
     sortOrder: String(plan.sortOrder ?? 0),
     featureList: (plan.featureList || []).join("\n"),
@@ -51,6 +57,9 @@ function PlanModal({ plan, onClose }) {
     const body = {
       ...v,
       price: Number(v.price) || 0,
+      yearlyPrice: Number(v.yearlyPrice) || 0,
+      usdPrice: Number(v.usdPrice) || 0,
+      usdYearlyPrice: Number(v.usdYearlyPrice) || 0,
       durationDays: Number(v.durationDays) || 30,
       sortOrder: Number(v.sortOrder) || 0,
       featureList: v.featureList.split("\n").map((s) => s.trim()).filter(Boolean),
@@ -60,6 +69,7 @@ function PlanModal({ plan, onClose }) {
     delete body._id;
     delete body.tenantCount;
     delete body.paystackPlanCode;
+    delete body.paystackPlanCodes;
     delete body.createdAt;
     delete body.updatedAt;
     delete body.id;
@@ -98,20 +108,24 @@ function PlanModal({ plan, onClose }) {
         <Field label="Description" className="md:col-span-4">
           <Input value={v.description} onChange={set("description")} />
         </Field>
-        <Field label="Price" error={errors.price}>
-          <Input type="number" min="0" step="0.01" value={v.price} onChange={set("price")} />
-        </Field>
-        <Field label="Currency">
-          <Input value={v.currency} onChange={set("currency")} maxLength={3} />
-        </Field>
-        <Field label="Billing interval">
-          <Select value={v.interval} onChange={set("interval")}>
-            <option value="monthly">Monthly</option>
-            <option value="quarterly">Quarterly</option>
-            <option value="biannually">Every 6 months</option>
-            <option value="annually">Annually</option>
-          </Select>
-        </Field>
+        <div className="md:col-span-4">
+          <p className="mb-1 text-sm font-semibold text-slate-800">Prices</p>
+          <p className="mb-3 text-xs text-slate-500">Nigerian businesses pay in Naira; everyone else pays in US dollars. Leave a yearly price empty for 10 × monthly (2 months free). Leave the USD price empty to hide this plan outside Nigeria.</p>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <Field label="₦ per month" error={errors.price}>
+              <Input type="number" min="0" step="0.01" value={v.price} onChange={set("price")} />
+            </Field>
+            <Field label="₦ per year" error={errors.yearlyPrice} hint={Number(v.price) ? `Auto: ₦${(Number(v.price) * 10).toLocaleString()}` : undefined}>
+              <Input type="number" min="0" step="0.01" value={v.yearlyPrice} onChange={set("yearlyPrice")} placeholder="Auto" />
+            </Field>
+            <Field label="$ per month" error={errors.usdPrice}>
+              <Input type="number" min="0" step="0.01" value={v.usdPrice} onChange={set("usdPrice")} placeholder="Not sold" />
+            </Field>
+            <Field label="$ per year" error={errors.usdYearlyPrice} hint={Number(v.usdPrice) ? `Auto: $${(Number(v.usdPrice) * 10).toLocaleString()}` : undefined}>
+              <Input type="number" min="0" step="0.01" value={v.usdYearlyPrice} onChange={set("usdYearlyPrice")} placeholder="Auto" />
+            </Field>
+          </div>
+        </div>
         <Field label="Sort order">
           <Input type="number" value={v.sortOrder} onChange={set("sortOrder")} />
         </Field>

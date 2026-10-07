@@ -12,7 +12,7 @@ export const metadata = {
     template: "%s · StockPilot",
   },
   description:
-    "StockPilot helps small retail businesses know what they have in stock, what they have sold, what they have spent, what they are owed, and how the business is performing. Start a 7-day free trial.",
+    "StockPilot helps small retail businesses know what they have in stock, what they have sold, what they have spent, what they are owed, and how the business is performing. Start a 3-day free trial.",
   applicationName: "StockPilot",
   manifest: "/site.webmanifest",
   // iPhone/iPad "Add to Home Screen": open full-screen with our icon and name.
@@ -29,7 +29,7 @@ export const metadata = {
   twitter: {
     card: "summary_large_image",
     title: "StockPilot — Run your shop smarter",
-    description: "Inventory, POS and business reports for retail shops. 7-day free trial.",
+    description: "Inventory, POS and business reports for retail shops. 3-day free trial.",
   },
   robots: { index: true, follow: true },
   alternates: { canonical: "/" },

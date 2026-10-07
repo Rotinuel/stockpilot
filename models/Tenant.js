@@ -40,6 +40,9 @@ const TenantSchema = new Schema(
     cancelAtPeriodEnd: { type: Boolean, default: false },
     // "auto": Paystack charges the saved card/bank every period. "manual": pays each period (transfer, USSD, card…).
     billingMode: { type: String, enum: ["auto", "manual"], default: "auto" },
+    // NGN for Nigerian businesses, USD for everyone else (set at sign-up from the country).
+    billingCurrency: { type: String, enum: ["NGN", "USD"] },
+    billingCycle: { type: String, enum: ["monthly", "annually"], default: "monthly" },
     cancelledAt: Date,
     pastDueSince: Date,
     graceEndsAt: Date,

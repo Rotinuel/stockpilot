@@ -5,11 +5,11 @@ import { TRIAL_DAYS } from "../../lib/constants.js";
 const now = new Date("2026-09-25T10:00:00Z");
 const trialTenant = (daysLeft) => ({ status: "active", subscriptionStatus: "trialing", trialEndsAt: new Date(now.getTime() + daysLeft * DAY_MS) });
 
-describe("7-day trial", () => {
-  test("trial is exactly 7 days", () => {
-    expect(TRIAL_DAYS).toBe(7);
+describe("3-day trial", () => {
+  test("trial is exactly 3 days", () => {
+    expect(TRIAL_DAYS).toBe(3);
     const { trialStartedAt, trialEndsAt } = trialWindow(now);
-    expect(trialEndsAt.getTime() - trialStartedAt.getTime()).toBe(7 * DAY_MS);
+    expect(trialEndsAt.getTime() - trialStartedAt.getTime()).toBe(3 * DAY_MS);
   });
 
   test("active trial allows writes and reports days left", () => {
@@ -35,10 +35,10 @@ describe("7-day trial", () => {
   });
 
   test("reminder keys are due once each", () => {
-    expect(dueTrialReminder(trialTenant(4.5), now)).toBe("trial-5");
-    expect(dueTrialReminder({ ...trialTenant(2.5), remindersSent: ["trial-5"] }, now)).toBe("trial-3");
-    expect(dueTrialReminder({ ...trialTenant(0.5), remindersSent: ["trial-5", "trial-3"] }, now)).toBe("trial-1");
-    expect(dueTrialReminder({ ...trialTenant(0.5), remindersSent: ["trial-5", "trial-3", "trial-1"] }, now)).toBe(null);
+    expect(dueTrialReminder(trialTenant(2.5), now)).toBe(null);
+    expect(dueTrialReminder(trialTenant(1.5), now)).toBe("trial-2");
+    expect(dueTrialReminder({ ...trialTenant(0.5), remindersSent: ["trial-2"] }, now)).toBe("trial-1");
+    expect(dueTrialReminder({ ...trialTenant(0.5), remindersSent: ["trial-2", "trial-1"] }, now)).toBe(null);
     expect(dueTrialReminder(trialTenant(-1), now)).toBe("trial-expired");
   });
 });
@@ -77,5 +77,16 @@ describe("Paid subscription lifecycle", () => {
     expect(a.state).toBe("suspended");
     expect(a.canRead).toBe(false);
     expect(a.canWrite).toBe(false);
+  });
+});
+
+import { isLegacyTrial } from "../../lib/access.js";
+describe("old 7-day trials", () => {
+  const start = new Date("2026-09-20T10:00:00Z");
+  test("only untouched 7-day trials are shortened", () => {
+    expect(isLegacyTrial({ subscriptionStatus: "trialing", trialStartedAt: start, trialEndsAt: addDays(start, 7) })).toBe(true);
+    expect(isLegacyTrial({ subscriptionStatus: "trialing", trialStartedAt: start, trialEndsAt: addDays(start, 3) })).toBe(false);
+    expect(isLegacyTrial({ subscriptionStatus: "trialing", trialStartedAt: start, trialEndsAt: addDays(start, 37) })).toBe(false); // extended
+    expect(isLegacyTrial({ subscriptionStatus: "active", trialStartedAt: start, trialEndsAt: addDays(start, 7) })).toBe(false);
   });
 });

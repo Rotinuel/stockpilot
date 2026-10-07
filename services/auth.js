@@ -20,6 +20,17 @@ import { logAudit } from "./audit.js";
 import { notify } from "./notifications.js";
 import { sessionOpts } from "./_scope.js";
 import { attachReferral } from "./referrals.js";
+import { billingCurrencyFor } from "../lib/pricing.js";
+
+function validTimezone(tz) {
+  if (!tz || typeof tz !== "string") return null;
+  try {
+    new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+    return tz;
+  } catch {
+    return null;
+  }
+}
 
 const MAX_FAILED_LOGINS = 5;
 let dummyHashPromise = null;
@@ -42,7 +53,7 @@ async function uniqueSlug(name) {
 
 /**
  * Registration: create user + tenant, make the user the owner, start the
- * 7-day trial on the trial plan, create the default location.
+ * 3-day trial on the trial plan, create the default location.
  */
 export async function registerBusiness(data, request) {
   await connectDB();
@@ -59,7 +70,9 @@ export async function registerBusiness(data, request) {
   const country = COUNTRIES.find((c) => c.code === data.country || c.name === data.country) || COUNTRIES[0];
   // The phone number doubles as the business WhatsApp number for alerts.
   const phoneE164 = normalizePhone(data.phone, country.code);
-  if (!phoneE164) throw validationError({ phone: "Enter a valid phone number, e.g. 0803 123 4567" });
+  if (!phoneE164) {
+    throw validationError({ phone: country.code === "NG" ? "Enter a valid phone number, e.g. 0803 123 4567" : country.dial ? `Enter a valid phone number (with or without +${country.dial})` : "Enter your number with its country code, e.g. +44 7700 900123" });
+  }
   const whatsappOptIn = data.whatsappOptIn !== false;
   // Password sign-up hashes the password; Google sign-up has a verified email and no password.
   const google = data.google || null;
@@ -87,6 +100,8 @@ export async function registerBusiness(data, request) {
             settings: { whatsappNotifications: whatsappOptIn },
             country: country.code,
             currency: country.currency,
+            billingCurrency: billingCurrencyFor(country.code),
+            timezone: validTimezone(data.timezone) || (country.code === "NG" ? "Africa/Lagos" : "UTC"),
             businessType: data.businessType,
             subscriptionPlan: trialPlan._id || undefined,
             subscriptionPlanCode: trialPlan.code || "trial",
@@ -161,7 +176,7 @@ export async function registerBusiness(data, request) {
     tenantId,
     type: "trial_ending",
     severity: "info",
-    title: "Welcome to StockPilot! Your 7-day free trial has started",
+    title: "Welcome to StockPilot! Your 3-day free trial has started",
     message: "Add your products, record sales and explore every feature. No payment is required during your trial.",
     link: "/billing",
     dedupeKey: `welcome:${tenantId}`,

@@ -17,6 +17,7 @@ import { notify } from "./notifications.js";
 import { invalidatePlanCache } from "./plans.js";
 import { addInterval, syncPlanToPaystack } from "./billing.js";
 import { isPaystackConfigured } from "../lib/paystack.js";
+import { planPrice, tenantBillingCurrency, normalizeCycle } from "../lib/pricing.js";
 
 const MONTHLY_FACTOR = { monthly: 1, quarterly: 1 / 3, biannually: 1 / 6, annually: 1 / 12 };
 
@@ -38,6 +39,7 @@ export async function platformStats(now = new Date()) {
     newToday,
     [revenue],
     [revenue30],
+    revenueUsdRows,
     failedPayments30,
     activeByPlan,
     plans,
@@ -54,13 +56,20 @@ export async function platformStats(now = new Date()) {
     Tenant.countDocuments({ subscriptionStatus: "cancelled" }),
     Tenant.countDocuments({ createdAt: { $gte: d30 } }),
     Tenant.countDocuments({ createdAt: { $gte: startOfToday } }),
-    Payment.aggregate([{ $match: { status: "success" } }, { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }]),
-    Payment.aggregate([{ $match: { status: "success", paidAt: { $gte: d30 } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+    Payment.aggregate([{ $match: { status: "success", currency: { $ne: "USD" } } }, { $group: { _id: null, total: { $sum: "$amount" }, count: { $sum: 1 } } }]),
+    Payment.aggregate([{ $match: { status: "success", currency: { $ne: "USD" }, paidAt: { $gte: d30 } } }, { $group: { _id: null, total: { $sum: "$amount" } } }]),
+    Payment.aggregate([
+      { $match: { status: "success", currency: "USD" } },
+      { $group: { _id: null, total: { $sum: "$amount" }, last30: { $sum: { $cond: [{ $gte: ["$paidAt", d30] }, "$amount", 0] } }, count: { $sum: 1 } } },
+    ]),
     Payment.countDocuments({ status: "failed", createdAt: { $gte: d30 } }),
-    Tenant.aggregate([{ $match: { subscriptionStatus: { $in: ["active", "past_due", "cancelled"] }, status: "active" } }, { $group: { _id: "$subscriptionPlan", count: { $sum: 1 } } }]),
+    Tenant.aggregate([
+      { $match: { subscriptionStatus: { $in: ["active", "past_due", "cancelled"] }, status: "active" } },
+      { $group: { _id: { plan: "$subscriptionPlan", currency: "$billingCurrency", country: "$country", cycle: "$billingCycle" }, count: { $sum: 1 } } },
+    ]),
     SubscriptionPlan.find({}).lean(),
     Payment.aggregate([
-      { $match: { status: "success", paidAt: { $gte: sixMonthsAgo } } },
+      { $match: { status: "success", currency: { $ne: "USD" }, paidAt: { $gte: sixMonthsAgo } } },
       { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$paidAt" } }, total: { $sum: "$amount" }, count: { $sum: 1 } } },
       { $sort: { _id: 1 } },
     ]),
@@ -73,14 +82,21 @@ export async function platformStats(now = new Date()) {
   ]);
 
   const planMap = new Map(plans.map((p) => [String(p._id), p]));
+  // MRR per billing currency; yearly subscriptions count as 1/12 of the yearly price.
   let mrr = 0;
-  const planDistribution = [];
+  let mrrUsd = 0;
+  const byPlan = new Map();
   for (const row of activeByPlan) {
-    const plan = planMap.get(String(row._id));
+    const plan = planMap.get(String(row._id.plan));
     if (!plan || plan.isTrial) continue;
-    mrr += plan.price * (MONTHLY_FACTOR[plan.interval] || 1) * row.count;
-    planDistribution.push({ plan: plan.name, count: row.count });
+    const currency = tenantBillingCurrency({ billingCurrency: row._id.currency, country: row._id.country });
+    const cycle = normalizeCycle(row._id.cycle);
+    const monthly = cycle === "annually" ? planPrice(plan, currency, "annually") / 12 : planPrice(plan, currency, "monthly") * (MONTHLY_FACTOR[plan.interval] || 1);
+    if (currency === "USD") mrrUsd += monthly * row.count;
+    else mrr += monthly * row.count;
+    byPlan.set(plan.name, (byPlan.get(plan.name) || 0) + row.count);
   }
+  const planDistribution = [...byPlan.entries()].map(([plan, count]) => ({ plan, count }));
 
   const months = [];
   for (let i = 5; i >= 0; i--) {
@@ -108,6 +124,9 @@ export async function platformStats(now = new Date()) {
     cancelled,
     mrr: round2(mrr),
     arr: round2(mrr * 12),
+    mrrUsd: round2(mrrUsd),
+    revenueUsd: round2(revenueUsdRows[0]?.total || 0),
+    revenue30Usd: round2(revenueUsdRows[0]?.last30 || 0),
     totalRevenue: round2(revenue?.total || 0),
     successfulPayments: revenue?.count || 0,
     revenue30: round2(revenue30?.total || 0),
@@ -307,7 +326,7 @@ export async function updatePlan(admin, id, data, request) {
   invalidatePlanCache();
 
   let paystackSync = null;
-  const billingChanged = current.price !== plan.price || current.interval !== plan.interval || current.name !== plan.name;
+  const billingChanged = ["price", "yearlyPrice", "usdPrice", "usdYearlyPrice", "interval", "name"].some((k) => (current[k] ?? 0) !== (plan[k] ?? 0));
   if (billingChanged && !plan.isTrial && plan.price > 0 && isPaystackConfigured()) {
     try {
       paystackSync = await syncPlanToPaystack(plan._id);

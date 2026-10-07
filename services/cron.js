@@ -10,6 +10,7 @@ import Product from "../models/Product.js";
 import { connectDB } from "../lib/db.js";
 import { dueTrialReminder, addDays } from "../lib/access.js";
 import { hasFeature } from "../lib/plans.js";
+import { TRIAL_REMINDER_DAYS } from "../lib/constants.js";
 import { notify } from "./notifications.js";
 import { getPlatformSettings } from "./platform.js";
 import { getEffectivePlan } from "./plans.js";
@@ -17,12 +18,13 @@ import { logAudit } from "./audit.js";
 import { verifyAndApply, syncSubscriptionFromPaystack, applyScheduledPlanChange } from "./billing.js";
 import { isPaystackConfigured } from "../lib/paystack.js";
 import { applyAllPendingCredits } from "./referrals.js";
+import { applyTrialLengthToAll } from "./trial.js";
 
 const BATCH = 200;
 const system = (tenantId) => ({ tenantId, userName: "System", role: "system" });
 
 export async function sendTrialReminders(now = new Date()) {
-  const tenants = await Tenant.find({ subscriptionStatus: "trialing", trialEndsAt: { $lte: addDays(now, 5), $gt: now } })
+  const tenants = await Tenant.find({ subscriptionStatus: "trialing", trialEndsAt: { $lte: addDays(now, Math.max(...TRIAL_REMINDER_DAYS)), $gt: now } })
     .select("trialEndsAt remindersSent subscriptionStatus businessName")
     .limit(BATCH)
     .lean();
@@ -32,7 +34,7 @@ export async function sendTrialReminders(now = new Date()) {
     if (!key || key === "trial-expired") continue;
     const mark = Number(key.split("-")[1]);
     const days = Math.max(1, Math.ceil((new Date(t.trialEndsAt) - now) / 86400000));
-    const severity = mark === 1 ? "danger" : mark === 3 ? "warning" : "info";
+    const severity = mark === 1 ? "danger" : "warning";
     await notify({
       tenantId: t._id,
       roles: ["owner", "admin"],
@@ -46,7 +48,7 @@ export async function sendTrialReminders(now = new Date()) {
       whatsapp: true,
     });
     // Mark this and all earlier (larger) reminders as sent.
-    const marks = [1, 3, 5].filter((m) => m >= mark).map((m) => `trial-${m}`);
+    const marks = TRIAL_REMINDER_DAYS.filter((m) => m >= mark).map((m) => `trial-${m}`);
     await Tenant.updateOne({ _id: t._id }, { $addToSet: { remindersSent: { $each: marks } } });
     sent++;
   }
@@ -54,6 +56,7 @@ export async function sendTrialReminders(now = new Date()) {
 }
 
 export async function expireTrials(now = new Date()) {
+  await applyTrialLengthToAll(); // shorten any old 7-day trials first
   const tenants = await Tenant.find({ subscriptionStatus: "trialing", trialEndsAt: { $lte: now } }).select("_id").limit(BATCH).lean();
   for (const t of tenants) {
     const res = await Tenant.updateOne({ _id: t._id, subscriptionStatus: "trialing" }, { $set: { subscriptionStatus: "expired" }, $addToSet: { remindersSent: "trial-expired" } });

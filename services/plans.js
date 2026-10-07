@@ -1,5 +1,6 @@
 import { connectDB } from "../lib/db.js";
 import SubscriptionPlan from "../models/SubscriptionPlan.js";
+import { TRIAL_DAYS } from "../lib/constants.js";
 
 // Plans are read on almost every request → short in-process cache.
 const TTL_MS = 60_000;
@@ -17,7 +18,7 @@ export const FALLBACK_TRIAL_PLAN = {
   price: 0,
   currency: "NGN",
   isTrial: true,
-  durationDays: 7,
+  durationDays: TRIAL_DAYS,
   limits: { products: 100, staffUsers: 2, locations: 1, monthlyTransactions: -1 },
   features: {},
   featureList: [],
@@ -26,7 +27,9 @@ export const FALLBACK_TRIAL_PLAN = {
 export async function getAllPlans({ includeInactive = false } = {}) {
   await connectDB();
   if (!cache.plans || Date.now() - cache.at > TTL_MS) {
-    cache = { at: Date.now(), plans: await SubscriptionPlan.find({}).sort({ sortOrder: 1, price: 1 }).lean() };
+    const plans = await SubscriptionPlan.find({}).sort({ sortOrder: 1, price: 1 }).lean();
+    // The trial length is a business rule (TRIAL_DAYS), whatever an older seed stored.
+    cache = { at: Date.now(), plans: plans.map((p) => (p.isTrial ? { ...p, durationDays: TRIAL_DAYS } : p)) };
   }
   return includeInactive ? cache.plans : cache.plans.filter((p) => p.isActive);
 }

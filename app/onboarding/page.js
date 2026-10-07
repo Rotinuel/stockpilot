@@ -23,7 +23,7 @@ export default async function OnboardingPage() {
     <div className="min-h-screen bg-linear-to-b from-brand-50/60 to-slate-50 px-4 py-8">
       <div className="mx-auto mb-8 flex max-w-2xl items-center justify-between">
         <Logo href="/dashboard" />
-        <span className="text-sm text-slate-500">7-day free trial active</span>
+        <span className="text-sm text-slate-500">3-day free trial active</span>
       </div>
       <Wizard tenant={view} initialStep={tenant.onboarding?.step || 1} canInvite={sessionCan(session, "staff:manage")} />
     </div>
