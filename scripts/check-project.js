@@ -24,7 +24,7 @@ if (files.some((f) => /(^|\/)middleware\.(js|mjs|ts)$/.test(f))) problems.push("
 if (!existsSync(path.join(root, "proxy.js"))) problems.push("proxy.js is missing");
 if (existsSync(path.join(root, "tsconfig.json"))) problems.push("tsconfig.json found — use jsconfig.json");
 
-const SECRETS = ["PAYSTACK_SECRET_KEY", "JWT_SECRET", "MONGODB_URI", "PAYSTACK_WEBHOOK_SECRET", "CRON_SECRET", "RESEND_API_KEY"];
+const SECRETS = ["PAYSTACK_SECRET_KEY", "JWT_SECRET", "MONGODB_URI", "PAYSTACK_WEBHOOK_SECRET", "CRON_SECRET", "RESEND_API_KEY", "SMTP_PASS"];
 for (const f of files.filter((x) => /\.(js|jsx)$/.test(x))) {
   const src = readFileSync(path.join(root, f), "utf8");
   if (/^\s*["']use client["']/.test(src)) {

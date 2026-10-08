@@ -13,19 +13,20 @@ StockPilot is a multi-tenant SaaS inventory, POS and business-management platfor
 3. [Quick start](#quick-start)
 4. [Environment variables](#environment-variables)
 5. [MongoDB setup](#mongodb-setup)
-6. [Paystack setup](#paystack-setup)
-7. [Seed data & demo logins](#seed-data--demo-logins)
-8. [Commands](#commands)
-9. [Deployment](#deployment)
-10. [Architecture](#architecture)
-11. [Multi-tenancy](#multi-tenancy)
-12. [RBAC (roles & permissions)](#rbac-roles--permissions)
-13. [Subscription architecture](#subscription-architecture)
-14. [Webhooks](#webhooks)
-15. [Cron / scheduled jobs](#cron--scheduled-jobs)
-16. [Security](#security)
-17. [Testing](#testing)
-18. [Project structure](#project-structure)
+6. [Email](#email)
+7. [Paystack setup](#paystack-setup)
+8. [Seed data & demo logins](#seed-data--demo-logins)
+9. [Commands](#commands)
+10. [Deployment](#deployment)
+11. [Architecture](#architecture)
+12. [Multi-tenancy](#multi-tenancy)
+13. [RBAC (roles & permissions)](#rbac-roles--permissions)
+14. [Subscription architecture](#subscription-architecture)
+15. [Webhooks](#webhooks)
+16. [Cron / scheduled jobs](#cron--scheduled-jobs)
+17. [Security](#security)
+18. [Testing](#testing)
+19. [Project structure](#project-structure)
 
 ---
 
@@ -108,7 +109,8 @@ See `.env.example` for the full, commented list.
 | `PAYSTACK_WEBHOOK_SECRET` | optional | Key used to verify webhook HMAC. Paystack signs with your **secret key**, so leave empty unless you proxy webhooks |
 | `PAYSTACK_ENFORCE_IP_WHITELIST` | optional | `true` → only accept webhooks from Paystack's IPs |
 | `CRON_SECRET` | for cron | Bearer token for `/api/cron/*` |
-| `RESEND_API_KEY`, `EMAIL_FROM` | optional | Transactional email. Without it, emails (verification, reset, invites) are printed to the server log and invite links are shown in the UI |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_SECURE`, `EMAIL_FROM` | optional | **Built-in mailer** — sends through any mailbox you own (Gmail, your domain's email…). See [Email](#email). Without it, emails are printed to the server log and invite links are shown in the UI |
+| `RESEND_API_KEY` / `EMAIL_PROVIDER` | optional | Use the Resend API instead of SMTP (only when `SMTP_HOST` is empty), or force `smtp` / `resend` / `console` |
 | `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `SUPER_ADMIN_NAME` | seed | First super admin |
 | `MONGODB_URI_TEST` | tests | Throw-away database for integration tests |
 
@@ -139,8 +141,36 @@ How it works (no extra SDK):
 - **Authorization Code + PKCE**, with `state` and `nonce` kept in a short-lived, signed, HTTP-only cookie. The callback rejects mismatched state (CSRF/login-fixation protection).
 - The code is exchanged server-side (client secret never reaches the browser) and the **ID token is verified** against Google's public keys (issuer, audience, expiry, nonce). Only Google-verified emails are accepted.
 - **Existing account with the same email** → signed in and the Google account is linked automatically.
-- **New person** → redirected to `/register/google` to enter business details (name, phone, country, business type); the Google identity is carried in a signed cookie, never in the form. The workspace, owner and 7-day trial are created exactly as with email sign-up; the email is marked verified.
+- **New person** → redirected to `/register/google` to enter business details (name, phone, country, business type); the Google identity is carried in a signed cookie, never in the form. The workspace, owner and 3-day trial are created exactly as with email sign-up; the email is marked verified.
 - Google-only users can add a password later (Settings → Security) or via “Forgot password”. Super admins must use email + password.
+
+## Email
+
+StockPilot has a **built-in mailer** (`lib/smtp.js`, no extra package or paid email service): it signs in to an ordinary mailbox over SMTP and sends verification, password-reset, staff-invite and alert emails through it.
+
+**Gmail / Google Workspace (easiest)**
+
+1. Turn on **2-Step Verification** for the Google account.
+2. Google Account → Security → **App passwords** → create one (16 characters).
+3. Set the environment variables (Vercel → Project → Settings → Environment Variables, or `.env` locally) and redeploy:
+   ```
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=465
+   SMTP_USER=yourshop@gmail.com
+   SMTP_PASS=the-app-password
+   EMAIL_FROM="StockPilot <yourshop@gmail.com>"
+   ```
+4. Super Admin → **Global settings → Email → Send test email**.
+
+**Email that came with your domain** (cPanel, Namecheap, Hostinger, Zoho…): use the server name from your host's email settings (often `mail.yourdomain.com`), port 465, the full mailbox address as `SMTP_USER` and its password.
+
+Notes:
+- Port **465** (TLS) or **587** (STARTTLS). Port 25 is blocked by most hosts, Vercel included.
+- The password is only read on the server; it is never sent to the browser or shown in the admin.
+- StockPilot refuses to send a password over an unencrypted connection and always checks the server's certificate.
+- `EMAIL_FROM` should be the mailbox you sign in with (or an alias it may send as), or emails can land in spam. For a professional sender like `no-reply@yourshop.com`, use your domain's mailbox and make sure the domain's SPF/DKIM records (set in your domain/email host) are in place.
+- Free Gmail allows roughly 500 emails a day — plenty for verification and alerts; for very large volumes use a bulk SMTP relay (Amazon SES, Brevo, Mailgun…) with the same `SMTP_*` variables.
+- Resend still works: leave `SMTP_HOST` empty and set `RESEND_API_KEY`.
 
 ## WhatsApp alerts
 
@@ -382,7 +412,7 @@ Handled events: `charge.success` (first payment, upgrades, **renewals**), `subsc
 
 | Task | What it does |
 | --- | --- |
-| `trial-reminders` | In-app (+email) reminders at 5, 3 and 1 days left |
+| `trial-reminders` | In-app (+email) reminders at 2 and 1 days left |
 | `renewal-reminders` | Reminds businesses on **Pay once** billing 5, 3 and 1 day(s) before their paid period ends |
 | `expire-trials` | Marks ended trials `expired` (read-only) and notifies |
 | `subscriptions` | Applies scheduled downgrades; moves unrenewed `active` → `past_due` with grace; `past_due` past grace → `expired`; ended `cancelled` → `expired` |
