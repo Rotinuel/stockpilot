@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "StockPilot — multi-tenant SaaS inventory, POS and business management for small and medium retail shops.",
-  "packageManager": "bun@1.3.13",
+  "packageManager": "bun@1.4.0",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
