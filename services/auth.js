@@ -219,8 +219,12 @@ export async function login({ email, password }, request) {
 
 export async function requestPasswordReset(email) {
   await connectDB();
-  const user = await User.findOne({ email: email.toLowerCase(), isActive: true }).lean();
-  if (!user) return { ok: true }; // never reveal whether an email exists
+  const user = await User.findOne({ email: email.toLowerCase().trim(), isActive: true }).lean();
+  if (!user) {
+    // Never reveal to the browser whether an email exists — but say so in the server log.
+    console.info(`[auth] Password reset requested for ${email}: no active account with that email, so no email was sent.`);
+    return { ok: true };
+  }
   const { token, hash } = createToken();
   await User.updateOne({ _id: user._id }, { $set: { passwordResetTokenHash: hash, passwordResetExpires: new Date(Date.now() + 3600 * 1000) } });
   await sendPasswordResetEmail(user, token);

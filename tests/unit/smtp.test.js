@@ -198,6 +198,8 @@ describe("configuration", () => {
     expect(smtpConfigFromEnv({ SMTP_HOST: "smtp.gmail.com", SMTP_PORT: "465", SMTP_USER: "a@gmail.com", SMTP_PASS: "x" })).toMatchObject({ host: "smtp.gmail.com", port: 465, secure: true, requireTls: true });
     expect(smtpConfigFromEnv({ SMTP_HOST: "mail.shop.ng" })).toMatchObject({ port: 587, secure: false, requireTls: true });
     expect(smtpConfigFromEnv({ SMTP_HOST: "localhost", SMTP_PORT: "1025" }).requireTls).toBe(false);
+    expect(smtpConfigFromEnv({ SMTP_HOST: "smtp.gmail.com", SMTP_PASS: " abcd efgh ijkl mnop " }).pass).toBe("abcdefghijklmnop");
+    expect(smtpConfigFromEnv({ SMTP_HOST: "mail.shop.ng", SMTP_PASS: "pass word" }).pass).toBe("pass word");
   });
 
   test("picks the provider and sender", () => {
