@@ -4,12 +4,12 @@ import { useState } from "react";
 import { Ban, CircleCheck, CalendarPlus, Layers } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Field, Input, Select, Textarea, Checkbox } from "@/components/ui/Field";
 import { apiFetch, useAction } from "@/hooks/useApi";
 
 export default function TenantActions({ tenant, plans }) {
   const [modal, setModal] = useState(null);
-  const [v, setV] = useState({ reason: "", days: "7", planId: plans.find((p) => !p.isTrial)?._id || "", periodDays: "" });
+  const [v, setV] = useState({ reason: "", days: "7", planId: plans.find((p) => !p.isTrial)?._id || "", periodDays: "", lifetime: false });
   const { run, loading } = useAction();
   const act = async (action, extra = {}) => {
     const res = await run(() => apiFetch(`/api/admin/tenants/${tenant._id}`, { method: "PATCH", body: { action, ...extra } }), { success: "Updated", refresh: true });
@@ -81,7 +81,7 @@ export default function TenantActions({ tenant, plans }) {
             <Button variant="outline" onClick={() => setModal(null)}>
               Cancel
             </Button>
-            <Button loading={loading} onClick={() => act("set_plan", { planId: v.planId, periodDays: v.periodDays ? Number(v.periodDays) : undefined })}>
+            <Button loading={loading} onClick={() => act("set_plan", { planId: v.planId, periodDays: !v.lifetime && v.periodDays ? Number(v.periodDays) : undefined, lifetime: v.lifetime })}>
               Apply plan
             </Button>
           </>
@@ -97,9 +97,18 @@ export default function TenantActions({ tenant, plans }) {
               ))}
             </Select>
           </Field>
-          <Field label="Period (days)" hint="Leave empty for one billing interval">
-            <Input type="number" min="1" max="400" value={v.periodDays} onChange={(e) => setV({ ...v, periodDays: e.target.value })} />
-          </Field>
+          <Checkbox
+            label="Lifetime access"
+            description="The plan never expires (e.g. a lifetime deal paid by bank transfer)."
+            checked={v.lifetime}
+            disabled={plans.find((p) => String(p._id) === String(v.planId))?.isTrial}
+            onChange={(e) => setV({ ...v, lifetime: e.target.checked })}
+          />
+          {!v.lifetime ? (
+            <Field label="Period (days)" hint="Leave empty for one billing interval">
+              <Input type="number" min="1" max="400" value={v.periodDays} onChange={(e) => setV({ ...v, periodDays: e.target.value })} />
+            </Field>
+          ) : null}
         </div>
       </Modal>
     </>

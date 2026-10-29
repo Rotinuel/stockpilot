@@ -42,7 +42,7 @@ const TenantSchema = new Schema(
     billingMode: { type: String, enum: ["auto", "manual"], default: "auto" },
     // NGN for Nigerian businesses, USD for everyone else (set at sign-up from the country).
     billingCurrency: { type: String, enum: ["NGN", "USD"] },
-    billingCycle: { type: String, enum: ["monthly", "annually"], default: "monthly" },
+    billingCycle: { type: String, enum: ["monthly", "annually", "lifetime"], default: "monthly" }, // lifetime = paid once, never expires
     cancelledAt: Date,
     pastDueSince: Date,
     graceEndsAt: Date,

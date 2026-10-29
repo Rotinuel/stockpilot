@@ -44,7 +44,7 @@ export default async function TenantDetailPage({ params }) {
             <KeyValue label="Status" value={<Badge tone={STATUS_TONES[t.subscriptionStatus]}>{SUBSCRIPTION_STATUS_LABELS[t.subscriptionStatus]}</Badge>} />
             <KeyValue label="Access" value={access.canWrite ? <Badge tone="green">Full</Badge> : <Badge tone="red">Read-only</Badge>} />
             <KeyValue label="Trial" value={`${formatDate(t.trialStartedAt)} → ${formatDate(t.trialEndsAt)}`} />
-            <KeyValue label="Period" value={t.subscriptionStartDate ? `${formatDate(t.subscriptionStartDate)} → ${formatDate(t.subscriptionEndDate)}` : "—"} />
+            <KeyValue label="Period" value={t.subscriptionStartDate ? `${formatDate(t.subscriptionStartDate)} → ${t.billingCycle === "lifetime" && t.subscriptionStatus !== "trialing" ? "lifetime" : formatDate(t.subscriptionEndDate)}` : "—"} />
             <KeyValue label="Paystack customer" value={<span className="font-mono text-xs">{t.paystackCustomerCode || "—"}</span>} />
             <KeyValue label="Paystack subscription" value={<span className="font-mono text-xs">{t.paystackSubscriptionCode || "—"}</span>} />
           </CardBody>

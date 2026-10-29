@@ -6,8 +6,8 @@ import { changePlan } from "@/services/billing";
 // Upgrade (immediate checkout) or downgrade (scheduled at period end).
 export const POST = withApi(
   async ({ request, ctx }) => {
-    const { planId, autoRenew, cycle } = parse(checkoutSchema, await readJson(request));
-    return changePlan(ctx, planId, request, { autoRenew, cycle });
+    const { planId, autoRenew, cycle, provider } = parse(checkoutSchema, await readJson(request));
+    return changePlan(ctx, planId, request, { autoRenew, cycle, provider });
   },
   { permission: "billing:manage", rateLimit: "checkout" },
 );

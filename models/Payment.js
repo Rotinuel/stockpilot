@@ -1,6 +1,6 @@
 import { Schema, ObjectId, baseOptions, defineModel, tenantField } from "./_helpers.js";
 
-// Subscription payments made by tenants to the platform (via Paystack).
+// Subscription payments made by tenants to the platform (via Paystack or OPay).
 const PaymentSchema = new Schema(
   {
     tenantId: tenantField,
@@ -8,6 +8,7 @@ const PaymentSchema = new Schema(
     planId: { type: ObjectId, ref: "SubscriptionPlan" },
     planCode: String,
     reference: { type: String, required: true },
+    provider: { type: String, enum: ["paystack", "opay"], default: "paystack" },
     amount: { type: Number, required: true }, // major units
     currency: { type: String, default: "NGN" },
     status: { type: String, enum: ["pending", "success", "failed", "abandoned", "reversed"], default: "pending", index: true },
@@ -15,11 +16,12 @@ const PaymentSchema = new Schema(
     // true: Paystack subscription (card / direct debit, renews automatically).
     // false: one-off payment for one period (card, transfer, USSD, bank… — renewed manually).
     autoRenew: { type: Boolean, default: true },
-    cycle: { type: String, enum: ["monthly", "annually"], default: "monthly" },
+    cycle: { type: String, enum: ["monthly", "annually", "lifetime"], default: "monthly" },
     channel: String,
     gatewayResponse: String,
     failureReason: String,
     paystackTransactionId: String,
+    gatewayTransactionId: String, // OPay order number
     paystackInvoiceCode: String,
     paidAt: Date,
     verifiedAt: Date,

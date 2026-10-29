@@ -17,6 +17,9 @@ const EMPTY = {
   yearlyPrice: "",
   usdPrice: "",
   usdYearlyPrice: "",
+  lifetimeEnabled: true,
+  lifetimePrice: "",
+  usdLifetimePrice: "",
   currency: "NGN",
   interval: "monthly",
   isTrial: false,
@@ -39,6 +42,9 @@ function toForm(plan) {
     yearlyPrice: plan.yearlyPrice ? String(plan.yearlyPrice) : "",
     usdPrice: plan.usdPrice ? String(plan.usdPrice) : "",
     usdYearlyPrice: plan.usdYearlyPrice ? String(plan.usdYearlyPrice) : "",
+    lifetimeEnabled: plan.lifetimeEnabled !== false,
+    lifetimePrice: plan.lifetimePrice ? String(plan.lifetimePrice) : "",
+    usdLifetimePrice: plan.usdLifetimePrice ? String(plan.usdLifetimePrice) : "",
     durationDays: String(plan.durationDays ?? 30),
     sortOrder: String(plan.sortOrder ?? 0),
     featureList: (plan.featureList || []).join("\n"),
@@ -60,6 +66,9 @@ function PlanModal({ plan, onClose }) {
       yearlyPrice: Number(v.yearlyPrice) || 0,
       usdPrice: Number(v.usdPrice) || 0,
       usdYearlyPrice: Number(v.usdYearlyPrice) || 0,
+      lifetimeEnabled: Boolean(v.lifetimeEnabled),
+      lifetimePrice: Number(v.lifetimePrice) || 0,
+      usdLifetimePrice: Number(v.usdLifetimePrice) || 0,
       durationDays: Number(v.durationDays) || 30,
       sortOrder: Number(v.sortOrder) || 0,
       featureList: v.featureList.split("\n").map((s) => s.trim()).filter(Boolean),
@@ -124,6 +133,19 @@ function PlanModal({ plan, onClose }) {
             <Field label="$ per year" error={errors.usdYearlyPrice} hint={Number(v.usdPrice) ? `Auto: $${(Number(v.usdPrice) * 10).toLocaleString()}` : undefined}>
               <Input type="number" min="0" step="0.01" value={v.usdYearlyPrice} onChange={set("usdYearlyPrice")} placeholder="Auto" />
             </Field>
+          </div>
+          <div className="mt-4 rounded-xl border border-slate-200 p-3">
+            <Checkbox label="Sell lifetime access" description="Pay once, keep this plan forever (no renewals). Leave the prices empty for 60 × monthly (5 years)." checked={v.lifetimeEnabled} onChange={set("lifetimeEnabled")} />
+            {v.lifetimeEnabled ? (
+              <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                <Field label="₦ lifetime" error={errors.lifetimePrice} hint={Number(v.price) ? `Auto: ₦${(Number(v.price) * 60).toLocaleString()}` : undefined}>
+                  <Input type="number" min="0" step="0.01" value={v.lifetimePrice} onChange={set("lifetimePrice")} placeholder="Auto" />
+                </Field>
+                <Field label="$ lifetime" error={errors.usdLifetimePrice} hint={Number(v.usdPrice) ? `Auto: $${(Number(v.usdPrice) * 60).toLocaleString()}` : "Needs a $ monthly price"}>
+                  <Input type="number" min="0" step="0.01" value={v.usdLifetimePrice} onChange={set("usdLifetimePrice")} placeholder="Auto" disabled={!Number(v.usdPrice)} />
+                </Field>
+              </div>
+            ) : null}
           </div>
         </div>
         <Field label="Sort order">

@@ -57,6 +57,11 @@ export default async function PlansPage() {
                         {formatMoney(p.price, "NGN")}/mo · {formatMoney(planPrice(p, "NGN", "annually"), "NGN")}/yr
                       </p>
                       <p className="text-xs text-slate-500">{p.usdPrice ? `${formatMoney(p.usdPrice, "USD")}/mo · ${formatMoney(planPrice(p, "USD", "annually"), "USD")}/yr` : "Not sold in USD"}</p>
+                      <p className="text-xs text-slate-500">
+                        {p.lifetimeEnabled === false
+                          ? "Lifetime: not sold"
+                          : `Lifetime: ${formatMoney(planPrice(p, "NGN", "lifetime"), "NGN")}${p.usdPrice ? ` · ${formatMoney(planPrice(p, "USD", "lifetime"), "USD")}` : ""}`}
+                      </p>
                     </>
                   )}
                 </td>

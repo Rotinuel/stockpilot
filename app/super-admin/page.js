@@ -27,7 +27,7 @@ export default async function SuperAdminHome() {
         <StatCard label="On trial" value={s.trialBusinesses} icon={Clock} tone="blue" href="/super-admin/tenants?subscription=trialing" />
         <StatCard label="Expired trials" value={s.expiredTrials} icon={TimerOff} tone="yellow" href="/super-admin/tenants?subscription=expired" />
         <StatCard label="Active subscriptions" value={s.activeSubscriptions} hint={`${s.pastDue} past due · ${s.cancelled} cancelled`} icon={Repeat} tone="purple" href="/super-admin/subscriptions" />
-        <StatCard label="MRR" value={formatMoney(s.mrr, "NGN")} hint={`ARR ${formatMoney(s.arr, "NGN")}${s.mrrUsd ? ` · + ${formatMoney(s.mrrUsd, "USD")}/mo in USD` : ""}`} icon={Banknote} tone="green" />
+        <StatCard label="MRR" value={formatMoney(s.mrr, "NGN")} hint={`ARR ${formatMoney(s.arr, "NGN")}${s.mrrUsd ? ` · + ${formatMoney(s.mrrUsd, "USD")}/mo in USD` : ""}${s.lifetimeCustomers ? ` · ${s.lifetimeCustomers} lifetime (not in MRR)` : ""}`} icon={Banknote} tone="green" />
         <StatCard
           label="Total revenue"
           value={formatMoney(s.totalRevenue, "NGN")}

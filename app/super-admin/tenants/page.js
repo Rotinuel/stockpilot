@@ -65,7 +65,7 @@ export default async function TenantsPage({ searchParams }) {
                     <Badge tone={STATUS_TONES[t.subscriptionStatus]}>{SUBSCRIPTION_STATUS_LABELS[t.subscriptionStatus]}</Badge>
                     {t.status === "suspended" ? <Badge tone="red" className="ml-1">Suspended</Badge> : null}
                   </td>
-                  <td className="hidden text-slate-600 lg:table-cell">{formatDate(t.subscriptionStatus === "trialing" ? t.trialEndsAt : t.subscriptionEndDate)}</td>
+                  <td className="hidden text-slate-600 lg:table-cell">{t.subscriptionStatus !== "trialing" && t.billingCycle === "lifetime" ? "Lifetime" : formatDate(t.subscriptionStatus === "trialing" ? t.trialEndsAt : t.subscriptionEndDate)}</td>
                   <td className="hidden text-slate-500 sm:table-cell">{formatDate(t.createdAt)}</td>
                 </tr>
               ))}

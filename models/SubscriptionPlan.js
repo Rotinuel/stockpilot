@@ -19,6 +19,10 @@ const SubscriptionPlanSchema = new Schema(
     yearlyPrice: { type: Number, default: 0, min: 0 }, // NGN per year (0 → 10 × monthly)
     usdPrice: { type: Number, default: 0, min: 0 }, // USD per month (0 → not sold in USD)
     usdYearlyPrice: { type: Number, default: 0, min: 0 }, // USD per year (0 → 10 × monthly)
+    // Lifetime access: pay once, keep the plan forever (0 → 60 × monthly).
+    lifetimeEnabled: { type: Boolean, default: true },
+    lifetimePrice: { type: Number, default: 0, min: 0 }, // NGN, one-time
+    usdLifetimePrice: { type: Number, default: 0, min: 0 }, // USD, one-time
     // Paystack plan codes per currency/cycle, e.g. { NGN_annually: "PLN_…", USD_monthly: "PLN_…" }
     paystackPlanCodes: { type: Schema.Types.Mixed, default: {} },
     featureList: { type: [String], default: [] },

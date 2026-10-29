@@ -22,7 +22,7 @@ export default async function AdminPaymentsPage({ searchParams }) {
   const items = toPlain(data.items);
   return (
     <>
-      <PageHeader title="Payments" description="Subscription payments processed through Paystack." />
+      <PageHeader title="Payments" description="Subscription payments processed through Paystack and OPay." />
       <div className="mb-5 grid gap-4 sm:grid-cols-3">
         <StatCard label="Successful" value={formatMoney(by.success?.total || 0, "NGN")} hint={`${by.success?.count || 0} payments`} tone="green" />
         <StatCard label="Failed" value={by.failed?.count || 0} tone="red" href="/super-admin/payments?status=failed" />
@@ -55,7 +55,7 @@ export default async function AdminPaymentsPage({ searchParams }) {
                 </td>
                 <td className="hidden font-mono text-xs text-slate-500 md:table-cell">{p.reference}</td>
                 <td className="hidden capitalize sm:table-cell">
-                  {p.planCode} <span className="text-xs text-slate-400">· {p.purpose}</span>
+                  {p.planCode} <span className="text-xs text-slate-400">· {p.purpose} · {p.provider === "opay" ? "OPay" : "Paystack"}</span>
                 </td>
                 <td className="text-right font-medium tabular-nums">{formatMoney(p.amount, p.currency)}</td>
                 <td>

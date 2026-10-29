@@ -28,7 +28,25 @@ export default async function BillingPage() {
   const manual = tenant.billingMode === "manual" && !isTrial;
   const currency = tenantBillingCurrency(tenant);
   const cycle = normalizeCycle(tenant.billingCycle);
-  const planForClient = (p) => (p ? { _id: String(p._id), name: p.name, price: p.price, yearlyPrice: p.yearlyPrice, usdPrice: p.usdPrice, usdYearlyPrice: p.usdYearlyPrice, interval: p.interval, isTrial: Boolean(p.isTrial) } : null);
+  const lifetime = cycle === "lifetime" && !isTrial;
+  const providers = { paystack: Boolean(data.paystackConfigured), opay: Boolean(data.opay?.configured && data.opay.currencies.includes(currency)) };
+  const paymentsConfigured = providers.paystack || providers.opay;
+  const planForClient = (p) =>
+    p
+      ? {
+          _id: String(p._id),
+          name: p.name,
+          price: p.price,
+          yearlyPrice: p.yearlyPrice,
+          usdPrice: p.usdPrice,
+          usdYearlyPrice: p.usdYearlyPrice,
+          lifetimeEnabled: p.lifetimeEnabled !== false,
+          lifetimePrice: p.lifetimePrice,
+          usdLifetimePrice: p.usdLifetimePrice,
+          interval: p.interval,
+          isTrial: Boolean(p.isTrial),
+        }
+      : null;
   const statusLabel = access.state === "trial_expired" ? "Trial expired" : SUBSCRIPTION_STATUS_LABELS[access.effectiveStatus] || access.effectiveStatus;
   const usageRows = [
     { key: "products", label: "Products", value: usage.products },
@@ -40,19 +58,21 @@ export default async function BillingPage() {
   return (
     <>
       <PageHeader title="Billing" description="Your plan, subscription and payment history." />
-      {!data.paystackConfigured ? (
+      {!paymentsConfigured ? (
         <Alert tone="warning" icon={Info} className="mb-6" title="Online payments are not set up yet">
           {isDev ? (
             <>
-              {data.paystack?.problem} Add <code className="rounded bg-amber-100 px-1">PAYSTACK_SECRET_KEY=sk_test_…</code> to your <code className="rounded bg-amber-100 px-1">.env</code> file (Paystack Dashboard → Settings → API Keys &amp; Webhooks), then stop the server and start it again — keys are only read when the server starts.
+              {data.paystack?.problem} Add <code className="rounded bg-amber-100 px-1">PAYSTACK_SECRET_KEY=sk_test_…</code> (Paystack Dashboard → Settings → API Keys &amp; Webhooks) and/or the <code className="rounded bg-amber-100 px-1">OPAY_*</code> keys to your <code className="rounded bg-amber-100 px-1">.env</code> file, then stop the server and start it again — keys are only read when the server starts.
+              {data.opay?.configured === false && /incomplete|same/.test(data.opay?.problem || "") ? ` ${data.opay.problem}` : ""}
             </>
           ) : (
             "Subscriptions can't be paid for right now. Please contact support — the platform administrator needs to finish the payment setup."
           )}
         </Alert>
-      ) : data.paystack?.mode === "test" ? (
-        <Alert tone="info" icon={Info} className="mb-6" title="Paystack test mode">
-          Payments use your Paystack test key, so no real money is charged. Use Paystack&apos;s test card 4084 0840 8408 4081, any future expiry, CVV 408, PIN 0000 and OTP 123456.
+      ) : ((providers.paystack && data.paystack?.mode === "test") || (providers.opay && data.opay?.mode === "test")) ? (
+        <Alert tone="info" icon={Info} className="mb-6" title="Test mode — no real money is charged">
+          {providers.paystack && data.paystack?.mode === "test" ? "Paystack uses your test key: card 4084 0840 8408 4081, any future expiry, CVV 408, PIN 0000, OTP 123456. " : ""}
+          {providers.opay && data.opay?.mode === "test" ? "OPay uses its sandbox (OPAY_MODE is not live) — use the test cards from OPay's developer docs." : ""}
         </Alert>
       ) : null}
       {!canManage ? (
@@ -74,7 +94,7 @@ export default async function BillingPage() {
             action={
               <SubscriptionControls
                 status={tenant.subscriptionStatus}
-                canManage={canManage && data.paystackConfigured}
+                canManage={canManage && paymentsConfigured}
                 hasCard={Boolean(tenant.paystackSubscriptionCode)}
                 hasPending={Boolean(pendingPlan)}
                 accessUntil={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null}
@@ -82,6 +102,7 @@ export default async function BillingPage() {
                 currentPlan={currentPlan && !currentPlan.isTrial ? planForClient(currentPlan) : null}
                 currency={currency}
                 cycle={cycle}
+                providers={providers}
               />
             }
           />
@@ -89,7 +110,7 @@ export default async function BillingPage() {
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <p className="text-2xl font-bold text-slate-900">{currentPlan?.name}</p>
-                <p className="text-sm text-slate-500">{isTrial ? "3-day free trial — all your data is kept when you subscribe" : currentPlan?.price ? `${formatMoney(planPrice(currentPlan, currency, cycle), currency)} per ${CYCLE_LABEL[cycle]} · billed ${cycle === "annually" ? "yearly" : "monthly"}` : ""}</p>
+                <p className="text-sm text-slate-500">{isTrial ? "3-day free trial — all your data is kept when you subscribe" : lifetime ? "Lifetime access — paid once, never renews" : currentPlan?.price ? `${formatMoney(planPrice(currentPlan, currency, cycle), currency)} per ${CYCLE_LABEL[cycle]} · billed ${cycle === "annually" ? "yearly" : "monthly"}` : ""}</p>
               </div>
               <Badge tone={STATUS_TONES[access.effectiveStatus] || "gray"} dot>
                 {statusLabel}
@@ -103,6 +124,12 @@ export default async function BillingPage() {
                     <KeyValue label="Trial started" value={formatDateTime(tenant.trialStartedAt)} />
                     <KeyValue label="Trial ends" value={formatDateTime(tenant.trialEndsAt)} />
                     <KeyValue label="Days remaining" value={access.daysLeft} />
+                  </>
+                ) : lifetime ? (
+                  <>
+                    <KeyValue label="Lifetime access since" value={formatDate(tenant.subscriptionStartDate)} />
+                    <KeyValue label="Access until" value="Forever" />
+                    <KeyValue label="Renewal" value="None — you'll never be charged again" />
                   </>
                 ) : (
                   <>
@@ -148,13 +175,22 @@ export default async function BillingPage() {
         currentPrice={currentPlan?.price || 0}
         isPaidActive={isPaidActive}
         canManage={canManage}
-        paystackConfigured={data.paystackConfigured}
+        paymentsConfigured={paymentsConfigured}
+        providers={providers}
         periodEnd={tenant.subscriptionEndDate ? formatDate(tenant.subscriptionEndDate) : null}
         billingMode={manual ? "manual" : "auto"}
         currency={currency}
         currentCycle={cycle}
       />
-      <p className="mt-3 text-xs text-slate-500">Payments are processed securely by Paystack. Choose <strong>Pay once</strong> to pay by bank transfer, USSD or card, or <strong>Automatic renewal</strong> to be charged by card/direct debit each period. Upgrades start immediately; downgrades apply at the end of your current billing period.</p>
+      <p className="mt-3 text-xs text-slate-500">
+        Payments are processed securely by {providers.paystack && providers.opay ? "Paystack or OPay" : providers.opay ? "OPay" : "Paystack"}. Choose <strong>Pay once</strong> to pay by bank transfer, USSD or card{providers.opay ? " (or your OPay wallet)" : ""}
+        {providers.paystack ? (
+          <>
+            , or <strong>Automatic renewal</strong> (Paystack) to be charged by card/direct debit each period
+          </>
+        ) : null}
+        . <strong>Lifetime</strong> is a single payment that keeps the plan forever. Upgrades start immediately; downgrades apply at the end of your current billing period.
+      </p>
 
       <h2 className="mt-10 mb-4 text-lg font-semibold text-slate-900">Payment history</h2>
       {payments.length ? (
@@ -174,7 +210,7 @@ export default async function BillingPage() {
                 <tr key={p._id}>
                   <td className="whitespace-nowrap text-slate-600">{formatDateTime(p.paidAt || p.createdAt)}</td>
                   <td className="capitalize">
-                    {p.planCode} <span className="text-xs text-slate-400">· {p.purpose}</span>
+                    {p.planCode} <span className="text-xs text-slate-400">· {p.cycle === "lifetime" ? "lifetime" : p.purpose} · {p.provider === "opay" ? "OPay" : "Paystack"}</span>
                   </td>
                   <td className="hidden font-mono text-xs text-slate-500 sm:table-cell">{p.reference}</td>
                   <td className="text-right font-medium tabular-nums">{formatMoney(p.amount, p.currency)}</td>

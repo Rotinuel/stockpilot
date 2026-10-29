@@ -15,18 +15,19 @@ StockPilot is a multi-tenant SaaS inventory, POS and business-management platfor
 5. [MongoDB setup](#mongodb-setup)
 6. [Email](#email)
 7. [Paystack setup](#paystack-setup)
-8. [Seed data & demo logins](#seed-data--demo-logins)
-9. [Commands](#commands)
-10. [Deployment](#deployment)
-11. [Architecture](#architecture)
-12. [Multi-tenancy](#multi-tenancy)
-13. [RBAC (roles & permissions)](#rbac-roles--permissions)
-14. [Subscription architecture](#subscription-architecture)
-15. [Webhooks](#webhooks)
-16. [Cron / scheduled jobs](#cron--scheduled-jobs)
-17. [Security](#security)
-18. [Testing](#testing)
-19. [Project structure](#project-structure)
+8. [OPay (optional)](#opay-optional)
+9. [Seed data & demo logins](#seed-data--demo-logins)
+10. [Commands](#commands)
+11. [Deployment](#deployment)
+12. [Architecture](#architecture)
+13. [Multi-tenancy](#multi-tenancy)
+14. [RBAC (roles & permissions)](#rbac-roles--permissions)
+15. [Subscription architecture](#subscription-architecture)
+16. [Webhooks](#webhooks)
+17. [Cron / scheduled jobs](#cron--scheduled-jobs)
+18. [Security](#security)
+19. [Testing](#testing)
+20. [Project structure](#project-structure)
 
 ---
 
@@ -105,6 +106,7 @@ See `.env.example` for the full, commented list.
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | optional | Enables “Continue with Google” sign-in and sign-up |
 | `GOOGLE_REDIRECT_URI` | optional | Override the OAuth callback (default `NEXT_PUBLIC_APP_URL/api/auth/google/callback`) |
 | `PAYSTACK_SECRET_KEY` | for billing | Paystack secret key (server only) |
+| `OPAY_MERCHANT_ID`, `OPAY_PUBLIC_KEY`, `OPAY_SECRET_KEY`, `OPAY_MODE`, `OPAY_CURRENCIES` | optional | OPay as a second way to pay (one-off payments). See [OPay](#opay-optional) |
 | `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY` | optional | Public key (not required by the redirect checkout flow; safe to expose) |
 | `PAYSTACK_WEBHOOK_SECRET` | optional | Key used to verify webhook HMAC. Paystack signs with your **secret key**, so leave empty unless you proxy webhooks |
 | `PAYSTACK_ENFORCE_IP_WHITELIST` | optional | `true` → only accept webhooks from Paystack's IPs |
@@ -230,6 +232,7 @@ Every business gets a personal link on **Refer & earn** (owners and admins), e.g
 
 - **Free trial:** 3 days, no card needed. Reminders go out when 2 days and 1 day are left.
 - **Monthly or yearly:** every paid plan can be paid monthly or yearly. Yearly defaults to **10 × the monthly price (2 months free)**; the Super Admin can set a different yearly price per plan in **Plans & pricing**. Customers switch between monthly and yearly from **Billing** (the new period starts when the current one ends).
+- **Lifetime access:** every paid plan can also be bought **once, for life** — by default **60 × the monthly price (5 years)**. In **Plans & pricing** the Super Admin can set a different ₦/$ lifetime price per plan or switch lifetime off for a plan. Lifetime is a one-off payment (Paystack or OPay, every payment method), never renews and can't be cancelled; the account simply never expires. A lifetime customer can only move **up** to a higher plan's lifetime access and pays just the **difference** between the two lifetime prices. Lifetime customers are shown separately on the Super Admin dashboard and aren't counted in MRR. If a leftover Paystack subscription ever charges a lifetime account, access is left unchanged and the charge is flagged in the audit log (`payment.after_lifetime`) so you can refund it.
 - **Global:** sign-up offers ~75 countries (the country is pre-selected from the browser), each with its own selling currency, phone format and time zone. **Businesses in Nigeria pay in Naira; everyone else pays in US dollars** — default USD prices are $9 / $19 / $39 a month (edit in Super Admin). The pricing page shows ₦ or $ based on the visitor's country (from Vercel/Cloudflare geo headers when available) and can be switched.
 - **USD payments go through the same Paystack account.** Ask Paystack to enable **USD / international card payments** on your live account first; until then USD checkouts show a friendly "not switched on yet" message.
 - **Stay signed in:** sessions last 30 days (`SESSION_DAYS`) and renew automatically while the app is used, so regular users are never logged out. Signed-in visitors to the home page go straight to their dashboard, and the sign-in page remembers the last person who used the device.
@@ -251,6 +254,16 @@ Test cards: see Paystack's docs (e.g. `4084 0840 8408 4081`, any future expiry, 
 - **Automatic renewal** — a Paystack subscription. Paystack only supports **card and direct debit** for recurring payments, so checkout shows only those. If checkout shows only "Choose your bank", the **Card** channel is switched off for your live account: enable Card in your Paystack Dashboard settings (the payment channels section under **Preferences**) and make sure your business is fully activated for live payments — or ask Paystack support to switch on card payments.
 
 If the amount on Paystack is a little higher than the plan price, your Paystack account is set to pass transaction fees to customers (a setting under **Preferences** in the Paystack Dashboard).
+
+## OPay (optional)
+
+OPay can be offered **beside Paystack**. At checkout the business picks **Paystack** or **OPay**; if only one is set up, that one is used.
+
+- OPay is for **one-off payments** (OPay wallet, card, bank transfer, USSD). OPay has no subscription feature, so a business that pays with OPay is on "pay once": it gets renewal reminders and renews with **Renew now**. Automatic renewal stays a Paystack feature.
+- Setup: create an OPay merchant (business) account → copy the **Merchant ID**, **Public key** and **Secret key** from the merchant dashboard into `OPAY_MERCHANT_ID`, `OPAY_PUBLIC_KEY`, `OPAY_SECRET_KEY`. Keep `OPAY_MODE=test` (sandbox) until you're ready, then use your live keys with `OPAY_MODE=live`.
+- Callback: the app sends `https://YOUR_DOMAIN/api/opay/webhook` with every checkout, so no dashboard setting is needed (you can also set it there).
+- Security: OPay's redirect and callback are only triggers. A payment is applied only after StockPilot asks OPay's status API itself (signed with your secret key) and the amount and currency match. Pending OPay payments are also re-checked by the `payments` cron task.
+- Currencies: NGN by default. Add USD (`OPAY_CURRENCIES=NGN,USD`) only if OPay has enabled dollar card payments on your account; otherwise customers outside Nigeria keep paying in USD through Paystack.
 
 ## Seed data & demo logins
 

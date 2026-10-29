@@ -173,6 +173,7 @@ const FAQS = [
   ["Do I need a card to start the free trial?", "No. Your 3-day trial starts as soon as you register and no payment details are required."],
   ["What happens when my trial ends?", "Your account becomes read-only: you can still sign in and view your products, sales and reports, but you'll need to subscribe to record new sales or stock changes. Nothing is deleted."],
   ["How do payments work?", "Pay securely through Paystack, monthly or yearly (yearly gets 2 months free). Businesses in Nigeria pay in Naira by card, bank transfer or USSD; businesses in other countries pay in US dollars by card. Choose automatic renewal or pay each period yourself, and upgrade, downgrade or cancel from the Billing page."],
+  ["Is there a lifetime deal?", "Yes. Pay once for lifetime access to a plan and never pay a monthly or yearly bill again. If you later need a bigger plan, you only pay the difference between the two lifetime prices."],
   ["Can I use StockPilot outside Nigeria?", "Yes. StockPilot works in any country: sell in your own currency, use your local time zone and phone numbers, and pay for your subscription in US dollars."],
   ["Can my staff use it?", "Yes. Invite staff as admins, managers, cashiers or inventory staff. Each role only sees what it needs — cashiers can't delete products or see your profit reports, for example."],
   ["Is my data separate from other businesses?", "Yes. Every business has its own isolated workspace, and every request is checked on the server against your account."],

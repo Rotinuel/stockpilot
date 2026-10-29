@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { formatMoney } from "@/lib/money";
-import { planPrice, yearlySaving, isSoldIn } from "@/lib/pricing";
+import { planPrice, yearlySaving, isSoldIn, PRICE_SUFFIX } from "@/lib/pricing";
 import { cn } from "@/utils/cn";
 
 const money = (v, c) => formatMoney(v, c).replace(/\.00$/, "");
@@ -33,7 +33,9 @@ function Toggle({ value, onChange, options, label }) {
 export default function Pricing({ plans = [], defaultCurrency = "NGN", trialDays = 3 }) {
   const [cycle, setCycle] = useState("monthly");
   const [currency, setCurrency] = useState(defaultCurrency === "USD" ? "USD" : "NGN");
-  const paid = plans.filter((p) => isSoldIn(p, currency, "monthly"));
+  const lifetimeAvailable = plans.some((p) => isSoldIn(p, currency, "lifetime"));
+  const shownCycle = cycle === "lifetime" && !lifetimeAvailable ? "monthly" : cycle;
+  const paid = plans.filter((p) => isSoldIn(p, currency, shownCycle === "lifetime" ? "lifetime" : "monthly"));
   const usdAvailable = plans.some((p) => isSoldIn(p, "USD", "monthly"));
 
   return (
@@ -43,18 +45,19 @@ export default function Pricing({ plans = [], defaultCurrency = "NGN", trialDays
           <p className="text-sm font-semibold text-brand-600">Pricing</p>
           <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">Simple plans that grow with your shop</h2>
           <p className="mt-4 text-slate-600">
-            Every account starts with a {trialDays}-day free trial — no payment required. Pay monthly, or yearly and get 2 months free.{" "}
+            Every account starts with a {trialDays}-day free trial — no payment required. Pay monthly, yearly (2 months free){lifetimeAvailable ? ", or once for lifetime access" : ""}.{" "}
             {currency === "NGN" ? "Pay by card, bank transfer or USSD." : "Pay by card from anywhere in the world."}
           </p>
         </div>
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Toggle
             label="Billing period"
-            value={cycle}
+            value={shownCycle}
             onChange={setCycle}
             options={[
               { value: "monthly", label: "Monthly" },
               { value: "annually", label: "Yearly", badge: "2 months free" },
+              ...(lifetimeAvailable ? [{ value: "lifetime", label: "Lifetime", badge: "pay once" }] : []),
             ]}
           />
           {usdAvailable ? (
@@ -72,7 +75,7 @@ export default function Pricing({ plans = [], defaultCurrency = "NGN", trialDays
         {paid.length ? (
           <div className={cn("mx-auto mt-10 grid max-w-6xl gap-6", paid.length >= 3 ? "lg:grid-cols-3" : "md:grid-cols-2")}>
             {paid.map((plan) => {
-              const price = planPrice(plan, currency, cycle);
+              const price = planPrice(plan, currency, shownCycle);
               const saving = yearlySaving(plan, currency);
               return (
                 <div key={String(plan._id)} className={cn("relative flex flex-col rounded-2xl border bg-white p-6 shadow-card sm:p-8", plan.highlight ? "border-brand-500 ring-2 ring-brand-500/20" : "border-slate-200")}>
@@ -81,10 +84,16 @@ export default function Pricing({ plans = [], defaultCurrency = "NGN", trialDays
                   <p className="mt-1 min-h-10 text-sm text-slate-500">{plan.description}</p>
                   <p className="mt-6 flex items-baseline gap-1">
                     <span className="text-4xl font-bold tracking-tight text-slate-900">{money(price, currency)}</span>
-                    <span className="text-sm text-slate-500">/{cycle === "annually" ? "year" : "month"}</span>
+                    <span className="text-sm text-slate-500">{PRICE_SUFFIX[shownCycle]}</span>
                   </p>
                   <p className="mt-1 min-h-5 text-sm text-emerald-700">
-                    {cycle === "annually" && saving > 0 ? `≈ ${money(price / 12, currency)}/month · save ${money(saving, currency)}` : cycle === "monthly" && saving > 0 ? `or ${money(planPrice(plan, currency, "annually"), currency)}/year` : ""}
+                    {shownCycle === "lifetime"
+                      ? "Pay once — keep it forever, no renewals"
+                      : shownCycle === "annually" && saving > 0
+                        ? `≈ ${money(price / 12, currency)}/month · save ${money(saving, currency)}`
+                        : shownCycle === "monthly" && saving > 0
+                          ? `or ${money(planPrice(plan, currency, "annually"), currency)}/year`
+                          : ""}
                   </p>
                   <Link
                     href={`/register?plan=${plan.code}`}

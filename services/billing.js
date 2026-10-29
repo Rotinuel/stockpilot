@@ -1,8 +1,9 @@
-// Subscription billing with Paystack.
+// Subscription billing with Paystack (one-off or automatic renewal) and OPay (one-off).
 //
 // Rules:
-//  • Payment status is NEVER taken from the browser. Every success is confirmed
-//    with GET /transaction/verify/:reference (callback, webhook and cron paths).
+//  • Payment status is NEVER taken from the browser. Every success is confirmed with the
+//    provider's own API — Paystack GET /transaction/verify/:reference, OPay cashier/status —
+//    on the callback, webhook and cron paths.
 //  • All state transitions are idempotent (payments are marked success atomically).
 //  • Data is never deleted when a subscription lapses — the tenant becomes read-only.
 import Tenant from "../models/Tenant.js";
@@ -11,6 +12,7 @@ import Payment from "../models/Payment.js";
 import Subscription from "../models/Subscription.js";
 import SubscriptionPlan from "../models/SubscriptionPlan.js";
 import { paystack, isPaystackConfigured, paystackStatus } from "../lib/paystack.js";
+import { opay, isOpayConfigured, opayStatus, normalizeOpayStatus } from "../lib/opay.js";
 import { toSubunit, fromSubunit, round2 } from "../lib/money.js";
 import { randomReference } from "../lib/auth/tokens.js";
 import { appUrl } from "../lib/request.js";
@@ -18,7 +20,7 @@ import { addDays } from "../lib/access.js";
 import { limitViolations, limitLabel } from "../lib/plans.js";
 import { badRequest, conflict, forbidden, notFound } from "../lib/errors.js";
 import { getPlanById, getPlanByCode, getPaidPlans, getEffectivePlan, invalidatePlanCache, getAllPlans } from "./plans.js";
-import { planPrice, tenantBillingCurrency, normalizeCycle, storedPaystackPlanCode, paystackPlanKey, matchPaystackPlanCode, isSoldIn, CYCLE_LABEL } from "../lib/pricing.js";
+import { planPrice, tenantBillingCurrency, normalizeCycle, storedPaystackPlanCode, paystackPlanKey, matchPaystackPlanCode, isSoldIn, CYCLE_LABEL, isLifetime, lifetimeUpgradePrice, LIFETIME_END } from "../lib/pricing.js";
 import { getPlatformSettings } from "./platform.js";
 import { getUsage } from "./limits.js";
 import { logAudit } from "./audit.js";
@@ -56,7 +58,31 @@ export async function getBillingOverview(ctx) {
   ]);
   const currentPlan = await getEffectivePlan(tenant);
   const pendingPlan = tenant.pendingPlanChange?.planId ? await getPlanById(tenant.pendingPlanChange.planId) : null;
-  return { tenant, currentPlan, plans, payments, usage, pendingPlan, paystackConfigured: isPaystackConfigured(), paystack: paystackStatus() };
+  return { tenant, currentPlan, plans, payments, usage, pendingPlan, ...paymentProviders() };
+}
+
+/** Which payment providers can take money right now (no secrets). */
+export function paymentProviders() {
+  const ps = paystackStatus();
+  const op = opayStatus();
+  return {
+    paystackConfigured: ps.configured,
+    paystack: ps,
+    opay: { configured: op.configured, mode: op.mode, currencies: op.currencies, problem: op.problem },
+    paymentsConfigured: ps.configured || op.configured,
+  };
+}
+
+/** Picks the provider for a checkout: the one asked for, else Paystack, else OPay. */
+function chooseProvider(requested, currency) {
+  const opayOk = isOpayConfigured() && opayStatus().currencies.includes(currency);
+  if (requested === "opay") {
+    if (!isOpayConfigured()) throw badRequest("OPay payments aren't set up yet. Please choose Paystack or contact support.");
+    if (!opayOk) throw badRequest(`OPay isn't available for payments in ${currency}. Please choose Paystack.`);
+    return "opay";
+  }
+  if (requested === "paystack" || isPaystackConfigured() || !opayOk) return "paystack";
+  return "opay";
 }
 
 // ── Paystack plan sync ──────────────────────────────────────
@@ -123,17 +149,29 @@ async function ownerOf(tenant) {
  * Start a Paystack checkout for `planId`. Returns the hosted authorization URL.
  * @param {'subscription'|'upgrade'|'renewal'} [purposeHint]
  */
-export async function startCheckout(ctx, planId, request, purposeHint, { autoRenew = true, cycle = "monthly" } = {}) {
+export async function startCheckout(ctx, planId, request, purposeHint, { autoRenew = true, cycle = "monthly", provider: requestedProvider } = {}) {
   cycle = normalizeCycle(cycle);
   const plan = await getPlanById(planId);
   if (!plan || !plan.isActive || plan.isTrial || plan.price <= 0) throw badRequest("Please choose a valid paid plan.");
   const tenant = await Tenant.findById(ctx.tenantId).lean();
   const currency = tenantBillingCurrency(tenant);
   if (!isSoldIn(plan, currency, cycle)) throw badRequest(`The ${plan.name} plan isn't available in ${currency} yet. Please contact support.`);
-  const amount = planPrice(plan, currency, cycle);
+  let amount = planPrice(plan, currency, cycle);
   const access = ctx.access;
+  const provider = chooseProvider(requestedProvider, currency);
+  if (provider === "opay" || cycle === "lifetime") autoRenew = false; // one payment: OPay has no subscriptions; lifetime never renews
 
   const isCurrentlyPaid = ["active", "cancelled", "past_due"].includes(access?.state) && tenant.subscriptionStatus !== "trialing";
+  // Lifetime customers can only move UP to another plan's lifetime access, paying the difference.
+  if (isCurrentlyPaid && isLifetime(tenant)) {
+    const current = await getEffectivePlan(tenant);
+    if (cycle !== "lifetime" || String(current._id) === String(plan._id) || plan.price <= current.price) {
+      throw conflict(`You already have lifetime access to ${current.name}. You can only upgrade to a higher plan's lifetime access.`);
+    }
+    amount = lifetimeUpgradePrice(current, plan, currency);
+    if (amount <= 0) throw badRequest("This upgrade has no price difference. Please contact support to switch plans.");
+    purposeHint = "upgrade";
+  }
   // Same plan while it renews automatically → nothing to pay. (Manual payers can renew early;
   // the new period starts when the current one ends.)
   const sameCycle = normalizeCycle(tenant.billingCycle) === cycle;
@@ -151,7 +189,7 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
   if (!owner?.email) throw badRequest("The business owner's email is missing.");
   // Recurring checkout (with a Paystack plan) only offers card and direct debit; a one-off
   // payment offers every channel enabled on the Paystack account (transfer, USSD, card…).
-  const planCode = autoRenew ? await ensurePaystackPlan(plan, currency, cycle) : null;
+  const planCode = provider === "paystack" && autoRenew ? await ensurePaystackPlan(plan, currency, cycle) : null;
   const reference = randomReference("SP");
 
   const payment = await Payment.create({
@@ -159,6 +197,7 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
     planId: plan._id,
     planCode: plan.code,
     reference,
+    provider,
     amount: round2(amount),
     currency,
     status: "pending",
@@ -168,6 +207,32 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
     initiatedBy: ctx.userId,
     customerEmail: owner.email,
   });
+
+  if (provider === "opay") {
+    let session;
+    try {
+      session = await opay.createCashier({
+        reference,
+        amount: toSubunit(amount),
+        currency,
+        returnUrl: appUrl(`/billing/callback?reference=${encodeURIComponent(reference)}`),
+        callbackUrl: appUrl("/api/opay/webhook"),
+        cancelUrl: appUrl(`/billing/callback?reference=${encodeURIComponent(reference)}`),
+        customer: { id: String(tenant._id), name: owner.name, email: owner.email, phone: tenant.phone },
+        product: { id: plan.code, name: `StockPilot ${plan.name} (${cycle === "annually" ? "1 year" : "1 month"})`, description: tenant.businessName },
+      });
+    } catch (err) {
+      await Payment.updateOne({ _id: payment._id }, { $set: { status: "failed", failureReason: err?.message?.slice(0, 300) } });
+      throw err;
+    }
+    if (!session.cashierUrl) {
+      await Payment.updateOne({ _id: payment._id }, { $set: { status: "failed", failureReason: "OPay returned no checkout link" } });
+      throw badRequest("OPay didn't return a checkout page. Please try again or pay with Paystack.");
+    }
+    await Payment.updateOne({ _id: payment._id }, { $set: { gatewayTransactionId: session.orderNo } });
+    await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount, currency, cycle, purpose, reference, autoRenew: false, provider }, request });
+    return { authorizationUrl: session.cashierUrl, reference, provider };
+  }
 
   let init;
   try {
@@ -199,8 +264,8 @@ export async function startCheckout(ctx, planId, request, purposeHint, { autoRen
     throw err;
   }
 
-  await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount, currency, cycle, purpose, reference, autoRenew }, request });
-  return { authorizationUrl: init.authorization_url, accessCode: init.access_code, reference };
+  await logAudit(ctx, "subscription.checkout", { entity: "Payment", entityId: payment._id, metadata: { plan: plan.code, amount, currency, cycle, purpose, reference, autoRenew, provider }, request });
+  return { authorizationUrl: init.authorization_url, accessCode: init.access_code, reference, provider };
 }
 
 // ── Verification & activation ───────────────────────────────
@@ -215,7 +280,7 @@ export async function verifyAndApply(reference, { expectedTenantId, via = "callb
   if (expectedTenantId && String(payment.tenantId) !== String(expectedTenantId)) throw notFound("Payment not found."); // IDOR guard
   if (payment.status === "success") return { status: "success", alreadyProcessed: true, payment };
 
-  const tx = await paystack.verifyTransaction(reference);
+  const tx = payment.provider === "opay" ? normalizeOpayStatus(await opay.queryStatus({ reference, currency: payment.currency })) : await paystack.verifyTransaction(reference);
   const meta = parseMetadata(tx.metadata);
   if (meta.tenantId && String(meta.tenantId) !== String(payment.tenantId)) {
     console.error("[billing] metadata tenant mismatch for", reference);
@@ -268,7 +333,7 @@ async function applySuccessfulPayment(payment, tx, via) {
         paidAt: tx.paid_at ? new Date(tx.paid_at) : now,
         channel: tx.channel,
         gatewayResponse: tx.gateway_response,
-        paystackTransactionId: String(tx.id || ""),
+        ...(payment.provider === "opay" ? { gatewayTransactionId: String(tx.id || payment.gatewayTransactionId || "") } : { paystackTransactionId: String(tx.id || "") }),
         verifiedAt: now,
         verifiedVia: via,
         cardLast4: tx.authorization?.last4,
@@ -298,8 +363,21 @@ async function applySuccessfulPayment(payment, tx, via) {
     }
   }
 
-  const start = payment.purpose === "renewal" && tenant.subscriptionEndDate && new Date(tenant.subscriptionEndDate) > now ? new Date(tenant.subscriptionEndDate) : now;
-  const end = addInterval(start, cycle === "annually" ? "annually" : plan.interval);
+  // A Paystack renewal charge arriving after the business bought lifetime access (an old
+  // subscription that couldn't be stopped): record the payment but never shorten lifetime access.
+  if (isLifetime(tenant) && cycle !== "lifetime" && ["active", "past_due", "cancelled"].includes(tenant.subscriptionStatus)) {
+    console.warn("[billing] payment received for a lifetime account — access unchanged", payment.reference);
+    await logAudit({ tenantId: tenant._id, userId: payment.initiatedBy, userName: payment.provider === "opay" ? "OPay" : "Paystack", role: "system" }, "payment.after_lifetime", {
+      entity: "Payment",
+      entityId: payment._id,
+      metadata: { reference: payment.reference, amount: payment.amount, currency: payment.currency, note: "Business already has lifetime access — consider refunding this charge." },
+    });
+    return { alreadyProcessed: false, plan: plan.code, lifetime: true };
+  }
+
+  const lifetime = cycle === "lifetime";
+  const start = !lifetime && payment.purpose === "renewal" && tenant.subscriptionEndDate && new Date(tenant.subscriptionEndDate) > now ? new Date(tenant.subscriptionEndDate) : now;
+  const end = lifetime ? new Date(LIFETIME_END) : addInterval(start, cycle === "annually" ? "annually" : plan.interval);
 
   await Subscription.updateMany(
     { tenantId: tenant._id, status: { $in: ["trialing", "active", "past_due", "cancelled"] } },
@@ -312,12 +390,12 @@ async function applySuccessfulPayment(payment, tx, via) {
     status: "active",
     amount: payment.amount,
     currency: payment.currency,
-    interval: cycle === "annually" ? "annually" : plan.interval,
-    paystackPlanCode: storedPaystackPlanCode(plan, payment.currency || "NGN", cycle),
+    interval: lifetime ? "lifetime" : cycle === "annually" ? "annually" : plan.interval,
+    paystackPlanCode: lifetime ? undefined : storedPaystackPlanCode(plan, payment.currency || "NGN", cycle),
     paystackCustomerCode: tx.customer?.customer_code,
     currentPeriodStart: start,
     currentPeriodEnd: end,
-    nextPaymentDate: end,
+    nextPaymentDate: lifetime ? undefined : end,
     changeType: payment.purpose === "upgrade" ? "upgrade" : payment.purpose === "renewal" ? "renewal" : "new",
     createdBy: payment.initiatedBy,
   });
@@ -328,9 +406,9 @@ async function applySuccessfulPayment(payment, tx, via) {
     subscriptionStatus: "active",
     subscriptionStartDate: start,
     subscriptionEndDate: end,
-    nextBillingDate: end,
+    nextBillingDate: lifetime ? null : end,
     cancelAtPeriodEnd: false,
-    billingMode: autoRenew ? "auto" : "manual",
+    billingMode: autoRenew && !lifetime ? "auto" : "manual",
     billingCycle: cycle,
     billingCurrency: payment.currency === "USD" ? "USD" : "NGN",
     cardLast4: tx.authorization?.last4 || tenant.cardLast4,
@@ -346,7 +424,7 @@ async function applySuccessfulPayment(payment, tx, via) {
   );
   await Payment.updateOne({ _id: payment._id }, { $set: { subscriptionId: sub._id } });
 
-  const actor = { tenantId: tenant._id, userId: payment.initiatedBy, userName: "Paystack", role: "system" };
+  const actor = { tenantId: tenant._id, userId: payment.initiatedBy, userName: payment.provider === "opay" ? "OPay" : "Paystack", role: "system" };
   await logAudit(actor, "payment.success", { entity: "Payment", entityId: payment._id, metadata: { reference: payment.reference, amount: payment.amount, plan: plan.code, via } });
   await logAudit(actor, "subscription.change", { entity: "Subscription", entityId: sub._id, metadata: { plan: plan.code, status: "active", periodEnd: end, purpose: payment.purpose } });
   await notify({
@@ -354,8 +432,10 @@ async function applySuccessfulPayment(payment, tx, via) {
     roles: ["owner", "admin"],
     type: payment.purpose === "renewal" ? "subscription_renewed" : "payment_success",
     severity: "success",
-    title: payment.purpose === "renewal" ? "Subscription renewed" : `You're on the ${plan.name} plan`,
-    message: `Payment of ${payment.currency} ${payment.amount.toLocaleString("en-NG")} received. Your subscription is active until ${end.toDateString()}.`,
+    title: lifetime ? `Lifetime access to ${plan.name}` : payment.purpose === "renewal" ? "Subscription renewed" : `You're on the ${plan.name} plan`,
+    message: lifetime
+      ? `Payment of ${payment.currency} ${payment.amount.toLocaleString("en-NG")} received. You now have lifetime access to ${plan.name} — no more renewals.`
+      : `Payment of ${payment.currency} ${payment.amount.toLocaleString("en-NG")} received. Your subscription is active until ${end.toDateString()}.`,
     link: "/billing",
     dedupeKey: `paysuccess:${payment.reference}`,
     email: true,
@@ -363,7 +443,7 @@ async function applySuccessfulPayment(payment, tx, via) {
   });
   // Referral programme: reward whoever referred this business (first payment only).
   await rewardReferralForPayment(marked);
-  return { alreadyProcessed: false, plan: plan.code, periodEnd: end };
+  return { alreadyProcessed: false, plan: plan.code, periodEnd: lifetime ? null : end, lifetime };
 }
 
 // ── Cancellation / resume ───────────────────────────────────
@@ -371,6 +451,7 @@ export async function cancelSubscription(ctx, request) {
   const tenant = await Tenant.findById(ctx.tenantId).select("+paystackEmailToken").lean();
   if (tenant.subscriptionStatus === "trialing") throw badRequest("You are on a free trial — there is no paid subscription to cancel.");
   if (!["active", "past_due"].includes(tenant.subscriptionStatus)) throw badRequest("There is no active subscription to cancel.");
+  if (isLifetime(tenant)) throw badRequest("You have lifetime access — there's nothing to cancel and you'll never be charged again.");
 
   if (tenant.paystackSubscriptionCode && tenant.paystackEmailToken) {
     await paystack.disableSubscription({ code: tenant.paystackSubscriptionCode, token: tenant.paystackEmailToken });
@@ -412,7 +493,7 @@ export async function resumeSubscription(ctx, request) {
  * Upgrades are charged immediately (new billing period starts today).
  * Downgrades take effect at the end of the current paid period.
  */
-export async function changePlan(ctx, planId, request, { autoRenew = true, cycle } = {}) {
+export async function changePlan(ctx, planId, request, { autoRenew = true, cycle, provider } = {}) {
   const target = await getPlanById(planId);
   if (!target || !target.isActive || target.isTrial) throw badRequest("Please choose a valid plan.");
   const tenant = await Tenant.findById(ctx.tenantId).select("+paystackEmailToken +paystackAuthorizationCode").lean();
@@ -420,7 +501,29 @@ export async function changePlan(ctx, planId, request, { autoRenew = true, cycle
   const paidAndActive = ["active", "past_due", "cancelled"].includes(ctx.access?.state) && tenant.subscriptionStatus !== "trialing";
   const currentCycle = normalizeCycle(tenant.billingCycle);
   cycle = normalizeCycle(cycle || currentCycle);
-  const opts = { autoRenew, cycle };
+  const opts = { autoRenew, cycle, provider };
+
+  // Lifetime: no renewals, cycle switches or downgrades — only an upgrade to a higher plan's lifetime.
+  if (paidAndActive && isLifetime(tenant)) {
+    if (cycle === "lifetime" && String(current._id) !== String(target._id) && target.price > current.price) {
+      return { action: "checkout", ...(await startCheckout(ctx, planId, request, "upgrade", opts)) };
+    }
+    throw conflict(`You already have lifetime access to ${current.name}. You can only upgrade to a higher plan's lifetime access.`);
+  }
+
+  // Buying lifetime access (any plan) is paid now and starts today.
+  if (cycle === "lifetime") {
+    if (paidAndActive && target.price < current.price) {
+      const usage = await getUsage(ctx.tenantId, { timezone: ctx.timezone });
+      const violations = limitViolations(usage, target);
+      if (violations.length) {
+        const list = violations.map((v) => `${v.label}: using ${v.usage}, ${target.name} allows ${limitLabel(v.limit)}`).join("; ");
+        throw badRequest(`${target.name} is too small for your business right now — ${list}.`, { violations });
+      }
+    }
+    const purpose = !paidAndActive ? undefined : String(current._id) === String(target._id) ? "renewal" : target.price > current.price ? "upgrade" : "subscription";
+    return { action: "checkout", ...(await startCheckout(ctx, planId, request, purpose, opts)) };
+  }
 
   if (!paidAndActive) return { action: "checkout", ...(await startCheckout(ctx, planId, request, undefined, opts)) };
   if (String(current._id) === String(target._id)) {
@@ -551,6 +654,13 @@ async function handleChargeSuccess(data) {
 async function handleSubscriptionCreate(data) {
   const tenant = await findTenantForPaystack(data);
   if (!tenant) return { ignored: "tenant_not_found" };
+  if (isLifetime(tenant)) {
+    // A lifetime account must never be charged again: stop any subscription Paystack creates.
+    if (data.subscription_code && data.email_token) {
+      await paystack.disableSubscription({ code: data.subscription_code, token: data.email_token }).catch((err) => console.warn("[billing] could not stop subscription on lifetime account", err?.message));
+    }
+    return { ignored: "lifetime_account" };
+  }
   const plan = (await planFromPaystackCode(data.plan?.plan_code))?.plan || null;
   const $set = {
     paystackSubscriptionCode: data.subscription_code,
@@ -577,6 +687,7 @@ async function handleSubscriptionCreate(data) {
 async function handleSubscriptionDisable(data, event) {
   const tenant = await findTenantForPaystack(data);
   if (!tenant) return { ignored: "tenant_not_found" };
+  if (isLifetime(tenant)) return { ignored: "lifetime_account" };
   if (tenant.paystackSubscriptionCode !== data.subscription_code) return { ignored: "not_current_subscription" };
   if (tenant.paystackRescheduledFrom === data.subscription_code) return { ignored: "rescheduled" }; // we moved the renewal date
   if (tenant.pendingPlanChange?.planId) return { ignored: "scheduled_change" }; // we disabled it for a downgrade
@@ -598,6 +709,7 @@ async function handleSubscriptionDisable(data, event) {
 }
 
 async function markPastDue(tenant, reason, reference) {
+  if (isLifetime(tenant)) return; // lifetime access never lapses because of a failed charge
   const platform = await getPlatformSettings();
   const now = new Date();
   const base = tenant.subscriptionEndDate && new Date(tenant.subscriptionEndDate) > now ? new Date(tenant.subscriptionEndDate) : now;

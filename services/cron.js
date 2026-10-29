@@ -16,6 +16,7 @@ import { getPlatformSettings } from "./platform.js";
 import { getEffectivePlan } from "./plans.js";
 import { logAudit } from "./audit.js";
 import { verifyAndApply, syncSubscriptionFromPaystack, applyScheduledPlanChange } from "./billing.js";
+import { isOpayConfigured } from "../lib/opay.js";
 import { isPaystackConfigured } from "../lib/paystack.js";
 import { applyAllPendingCredits } from "./referrals.js";
 import { applyTrialLengthToAll } from "./trial.js";
@@ -143,8 +144,10 @@ export async function processSubscriptionExpiry(now = new Date()) {
 }
 
 export async function reconcilePendingPayments(now = new Date()) {
-  if (!isPaystackConfigured()) return { skipped: "paystack_not_configured" };
-  const stale = await Payment.find({ status: "pending", createdAt: { $lt: new Date(now - 15 * 60 * 1000), $gt: addDays(now, -3) } })
+  const providers = [isPaystackConfigured() && "paystack", isOpayConfigured() && "opay"].filter(Boolean);
+  if (!providers.length) return { skipped: "payments_not_configured" };
+  const providerFilter = providers.includes("paystack") ? { $in: [...providers, null] } : { $in: providers }; // older payments have no provider (Paystack)
+  const stale = await Payment.find({ status: "pending", provider: providerFilter, createdAt: { $lt: new Date(now - 15 * 60 * 1000), $gt: addDays(now, -3) } })
     .limit(50)
     .lean();
   const out = { checked: stale.length, success: 0, failed: 0, abandoned: 0 };

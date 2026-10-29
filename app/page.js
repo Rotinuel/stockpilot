@@ -4,7 +4,7 @@ import Pricing from "@/components/landing/Pricing";
 import { Hero, Problem, Features, HowItWorks, Testimonials, FAQ, CTA, Footer } from "@/components/landing/Sections";
 import { headers } from "next/headers";
 import { getPublicPlans } from "@/services/plans";
-import { billingCurrencyFor, planPrice } from "@/lib/pricing";
+import { billingCurrencyFor, planPrice, isSoldIn } from "@/lib/pricing";
 import { TRIAL_DAYS } from "@/lib/constants";
 
 // Plans come from MongoDB (configurable by the Super Admin).
@@ -37,6 +37,7 @@ export default async function HomePage() {
         { "@type": "Offer", name: `${p.name} (monthly)`, price: p.price, priceCurrency: "NGN" },
         ...(p.usdPrice ? [{ "@type": "Offer", name: `${p.name} (monthly, USD)`, price: p.usdPrice, priceCurrency: "USD" }] : []),
         { "@type": "Offer", name: `${p.name} (yearly)`, price: planPrice(p, "NGN", "annually"), priceCurrency: "NGN" },
+        ...(isSoldIn(p, "NGN", "lifetime") ? [{ "@type": "Offer", name: `${p.name} (lifetime)`, price: planPrice(p, "NGN", "lifetime"), priceCurrency: "NGN" }] : []),
       ]),
   };
   return (

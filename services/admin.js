@@ -16,8 +16,8 @@ import { logAudit } from "./audit.js";
 import { notify } from "./notifications.js";
 import { invalidatePlanCache } from "./plans.js";
 import { addInterval, syncPlanToPaystack } from "./billing.js";
-import { isPaystackConfigured } from "../lib/paystack.js";
-import { planPrice, tenantBillingCurrency, normalizeCycle } from "../lib/pricing.js";
+import { isPaystackConfigured, paystack } from "../lib/paystack.js";
+import { planPrice, tenantBillingCurrency, normalizeCycle, isLifetime, LIFETIME_END } from "../lib/pricing.js";
 
 const MONTHLY_FACTOR = { monthly: 1, quarterly: 1 / 3, biannually: 1 / 6, annually: 1 / 12 };
 
@@ -83,14 +83,21 @@ export async function platformStats(now = new Date()) {
 
   const planMap = new Map(plans.map((p) => [String(p._id), p]));
   // MRR per billing currency; yearly subscriptions count as 1/12 of the yearly price.
+  // Lifetime customers paid once, so they're counted separately and not in MRR.
   let mrr = 0;
   let mrrUsd = 0;
+  let lifetimeCustomers = 0;
   const byPlan = new Map();
   for (const row of activeByPlan) {
     const plan = planMap.get(String(row._id.plan));
     if (!plan || plan.isTrial) continue;
     const currency = tenantBillingCurrency({ billingCurrency: row._id.currency, country: row._id.country });
     const cycle = normalizeCycle(row._id.cycle);
+    if (cycle === "lifetime") {
+      lifetimeCustomers += row.count;
+      byPlan.set(plan.name, (byPlan.get(plan.name) || 0) + row.count);
+      continue;
+    }
     const monthly = cycle === "annually" ? planPrice(plan, currency, "annually") / 12 : planPrice(plan, currency, "monthly") * (MONTHLY_FACTOR[plan.interval] || 1);
     if (currency === "USD") mrrUsd += monthly * row.count;
     else mrr += monthly * row.count;
@@ -125,6 +132,7 @@ export async function platformStats(now = new Date()) {
     mrr: round2(mrr),
     arr: round2(mrr * 12),
     mrrUsd: round2(mrrUsd),
+    lifetimeCustomers,
     revenueUsd: round2(revenueUsdRows[0]?.total || 0),
     revenue30Usd: round2(revenueUsdRows[0]?.last30 || 0),
     totalRevenue: round2(revenue?.total || 0),
@@ -206,7 +214,15 @@ export async function tenantAction(admin, id, data, request) {
       const plan = data.planId ? await SubscriptionPlan.findById(data.planId).lean() : null;
       if (!plan) throw badRequest("Choose a plan.");
       const now = new Date();
-      const end = data.periodDays ? addDays(now, data.periodDays) : addInterval(now, plan.interval);
+      const lifetime = Boolean(data.lifetime) && !plan.isTrial;
+      if (lifetime && tenant.paystackSubscriptionCode) {
+        // Stop the card subscription so a lifetime account is never charged again.
+        const withToken = await Tenant.findById(tenant._id).select("+paystackEmailToken").lean();
+        if (withToken?.paystackEmailToken && isPaystackConfigured()) {
+          await paystack.disableSubscription({ code: tenant.paystackSubscriptionCode, token: withToken.paystackEmailToken }).catch((err) => console.warn("[admin] could not stop Paystack subscription", err?.message));
+        }
+      }
+      const end = lifetime ? new Date(LIFETIME_END) : data.periodDays ? addDays(now, data.periodDays) : addInterval(now, plan.interval);
       await Subscription.updateMany({ tenantId: tenant._id, status: { $in: ["trialing", "active", "past_due", "cancelled"] } }, { $set: { status: "expired", endedAt: now } });
       const sub = await Subscription.create({
         tenantId: tenant._id,
@@ -215,7 +231,7 @@ export async function tenantAction(admin, id, data, request) {
         status: plan.isTrial ? "trialing" : "active",
         amount: 0,
         currency: plan.currency,
-        interval: plan.interval,
+        interval: lifetime ? "lifetime" : plan.interval,
         currentPeriodStart: now,
         currentPeriodEnd: end,
         changeType: "manual",
@@ -225,12 +241,23 @@ export async function tenantAction(admin, id, data, request) {
         {
           $set: plan.isTrial
             ? { subscriptionPlan: plan._id, subscriptionPlanCode: plan.code, subscriptionStatus: "trialing", trialEndsAt: end }
-            : { subscriptionPlan: plan._id, subscriptionPlanCode: plan.code, subscriptionStatus: "active", subscriptionStartDate: now, subscriptionEndDate: end, nextBillingDate: end, cancelAtPeriodEnd: true },
+            : lifetime
+              ? { subscriptionPlan: plan._id, subscriptionPlanCode: plan.code, subscriptionStatus: "active", subscriptionStartDate: now, subscriptionEndDate: end, nextBillingDate: null, cancelAtPeriodEnd: false, billingCycle: "lifetime", billingMode: "manual", paystackSubscriptionCode: null }
+              : {
+                  subscriptionPlan: plan._id,
+                  subscriptionPlanCode: plan.code,
+                  subscriptionStatus: "active",
+                  subscriptionStartDate: now,
+                  subscriptionEndDate: end,
+                  nextBillingDate: end,
+                  cancelAtPeriodEnd: true,
+                  ...(isLifetime(tenant) ? { billingCycle: "monthly", billingMode: "manual" } : {}),
+                },
           $unset: { pastDueSince: 1, graceEndsAt: 1, pendingPlanChange: 1 },
         },
       );
-      await logAudit(actor, "subscription.manual_change", { tenantId: tenant._id, entity: "Subscription", entityId: sub._id, metadata: { plan: plan.code, until: end }, request });
-      await notify({ tenantId: tenant._id, roles: ["owner", "admin"], type: "subscription_changed", severity: "success", title: `Your plan is now ${plan.name}`, message: `Active until ${end.toDateString()}.`, link: "/billing" });
+      await logAudit(actor, "subscription.manual_change", { tenantId: tenant._id, entity: "Subscription", entityId: sub._id, metadata: { plan: plan.code, until: lifetime ? "lifetime" : end }, request });
+      await notify({ tenantId: tenant._id, roles: ["owner", "admin"], type: "subscription_changed", severity: "success", title: lifetime ? `Lifetime access to ${plan.name}` : `Your plan is now ${plan.name}`, message: lifetime ? "Your plan never expires — no more renewals." : `Active until ${end.toDateString()}.`, link: "/billing" });
       return { ok: true };
     }
     default:

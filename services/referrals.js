@@ -106,6 +106,8 @@ export async function attachReferral({ tenantId, code, email, phone, request }) 
 export async function extendPaidSubscription(tenantId, days, reason = "referral") {
   const tenant = await Tenant.findById(tenantId).select("+paystackEmailToken +paystackAuthorizationCode").lean();
   if (!tenant || days <= 0) return { applied: false };
+  // Lifetime accounts never expire, so free days add nothing (any cash commission is unaffected).
+  if (tenant.billingCycle === "lifetime" && ["active", "past_due", "cancelled"].includes(tenant.subscriptionStatus)) return { applied: true, lifetime: true };
   const now = new Date();
   const base = tenant.subscriptionEndDate && new Date(tenant.subscriptionEndDate) > now ? new Date(tenant.subscriptionEndDate) : now;
   const newEnd = addDays(base, days);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { planPrice, yearlySaving, billingCurrencyFor, tenantBillingCurrency, isSoldIn, storedPaystackPlanCode, matchPaystackPlanCode, normalizeCycle } from "../../lib/pricing.js";
+import { planPrice, yearlySaving, billingCurrencyFor, tenantBillingCurrency, isSoldIn, storedPaystackPlanCode, matchPaystackPlanCode, normalizeCycle, lifetimeUpgradePrice, isLifetime, LIFETIME_END } from "../../lib/pricing.js";
 import { normalizePhone } from "../../lib/phone.js";
 import { COUNTRIES, CURRENCIES, TRIAL_DAYS } from "../../lib/constants.js";
 
@@ -47,5 +47,34 @@ describe("global sign-up", () => {
     expect(normalizePhone("+33 6 12 34 56 78", "OTHER")).toBe("+33612345678");
     expect(normalizePhone("612345678", "OTHER")).toBe(null);
     expect(normalizePhone("0803 123 4567", "NG")).toBe("+2348031234567");
+  });
+});
+
+describe("lifetime access", () => {
+  const pro = { _id: "p", name: "Pro", price: 10000, usdPrice: 19 };
+  test("defaults to 60 × monthly, with per-currency overrides", () => {
+    expect(planPrice(starter, "NGN", "lifetime")).toBe(300000);
+    expect(planPrice(starter, "USD", "lifetime")).toBe(540);
+    expect(planPrice({ ...starter, lifetimePrice: 250000, usdLifetimePrice: 499 }, "NGN", "lifetime")).toBe(250000);
+    expect(planPrice({ ...starter, lifetimePrice: 250000, usdLifetimePrice: 499 }, "USD", "lifetime")).toBe(499);
+    expect(normalizeCycle("lifetime")).toBe("lifetime");
+  });
+  test("can be switched off per plan and is never sold for trials or missing currencies", () => {
+    expect(isSoldIn(starter, "NGN", "lifetime")).toBe(true);
+    expect(isSoldIn({ ...starter, lifetimeEnabled: false }, "NGN", "lifetime")).toBe(false);
+    expect(isSoldIn({ ...starter, lifetimeEnabled: false }, "NGN", "monthly")).toBe(true);
+    expect(isSoldIn({ ...starter, isTrial: true }, "NGN", "lifetime")).toBe(false);
+    expect(isSoldIn(custom, "USD", "lifetime")).toBe(false);
+    expect(planPrice({ ...custom, usdLifetimePrice: 999 }, "USD", "lifetime")).toBe(0);
+  });
+  test("upgrades only cost the difference", () => {
+    expect(lifetimeUpgradePrice(starter, pro, "NGN")).toBe(300000);
+    expect(lifetimeUpgradePrice(pro, starter, "NGN")).toBe(0);
+    expect(lifetimeUpgradePrice(starter, pro, "USD")).toBe(600);
+  });
+  test("lifetime accounts", () => {
+    expect(isLifetime({ billingCycle: "lifetime" })).toBe(true);
+    expect(isLifetime({ billingCycle: "annually" })).toBe(false);
+    expect(LIFETIME_END.getUTCFullYear()).toBe(2999);
   });
 });
